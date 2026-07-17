@@ -1,0 +1,25 @@
+# Raw inputs are symlinks to the original Dropbox locations (large, external).
+# The repo ships the precomputed merged table instead; see data/raw/README.md.
+data/raw/*
+!data/raw/README.md
+
+# Rebuilt artifacts from `--step merge` (canonical shipped versions are kept)
+data/toc_t50_rebuilt.txt
+data/log2_norm_list_shift_rebuilt.RData
+
+# Ad-hoc per-gene plots from `query_gene.R --plot` (transient).
+# The standard figure set (kinetic_class_timelines, example_genes_timeline,
+# t50_vs_log2fc) IS tracked so it renders in the repo.
+figures/timeline_*
+
+# R
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.claude/
