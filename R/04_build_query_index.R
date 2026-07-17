@@ -63,6 +63,12 @@ idx$direction_label <- ifelse(idx$direction > 0, "up",
                        ifelse(idx$direction < 0, "down", "flat"))
 idx$signed_log2fc   <- idx$log2fc * idx$direction
 
+# Human-readable developmental-day labels for the day-axis indices (t50,
+# time_of_max, time_of_min live on the 63-point E15..P56 daily axis).
+idx$t50_day         <- mt_day_label(idx$t50)
+idx$time_of_max_day <- mt_day_label(idx$time_of_max)
+idx$time_of_min_day <- mt_day_label(idx$time_of_min)
+
 # Round the floating-point metrics for a compact, readable file.
 num_cols <- c("t50","t50_scott","t50_hatten","log2fc","log2fc_scott",
               "log2fc_hatten","time_of_max","time_of_min","max_expr_scott",

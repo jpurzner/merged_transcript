@@ -89,6 +89,21 @@ mt_meta_list <- function() {
   ml
 }
 
+# The 63-point DAILY axis (E15,E16,...,E20,P0,P1,...,P56) that t50 / avg_max /
+# avg_min / time_of_max / time_of_min are indexed on. NOTE this is a finer axis
+# than the 9-point sampled pseudo-time (MT_PSEUDO_TIME): e.g. index 1 = E15,
+# 7 = P0, 8 = P1, 14 = P7, 19 = P12, 21 = P14, 25 = P18, 28 = P21, 63 = P56.
+MT_DAY_AXIS <- c(paste0("E", 15:20), paste0("P", 0:56))
+
+# Convert a (possibly fractional) day-axis index to its nearest day label.
+mt_day_label <- function(i) {
+  j <- round(as.numeric(i))
+  j <- pmin(pmax(j, 1L), length(MT_DAY_AXIS))
+  out <- MT_DAY_AXIS[j]
+  out[is.na(i)] <- NA
+  out
+}
+
 # time_ref: maps each day on the E15..P56 axis to which dataset sampled it.
 mt_time_ref <- function() {
   tr <- data.frame(time = c(paste0("E", 15:20), paste0("P", 0:56)),

@@ -74,24 +74,65 @@ For bulk / programmatic access, read the slim table directly:
 `data/timecourse_query_index.tsv` (one row per transcript, tab-separated,
 gene symbol in column `gene`).
 
+### Numerical timecourse values
+
+When you need the actual shape of the trajectory (not just the summary), get
+the per-time-point values behind the plot:
+
+```bash
+Rscript R/timecourse_values.R <GENE> [<GENE> ...] [options]
+```
+
+Options: `--format json|table|tsv` · `--replicates` (raw per-replicate values)
+· `--series` (JSON: compact `{time, mean}` per dataset) · `--help`.
+
+Each gene returns its `summary` plus a `timecourse` array of
+`{dataset, time, pseudo_time_index, n, mean, sd, sem}` — the aligned **log2
+fold change vs the gene's own mean** at each of the 9 sampled time points, for
+`scott_GNP` (E15,P1,P7,P14) and `hatten_GNP` (P0,P7,P12,P18,P21,P56). Read the
+`time` labels (E15…P56), not `pseudo_time_index`, as the axis. Example:
+
+```json
+{ "unit": "log2 fold change vs gene mean, aligned across datasets",
+  "genes": [{ "gene": "Ccnd1", "transcript_id": "uc009kqt.1",
+    "summary": { "t50_day": "P12", "time_of_max": "P1", "direction": "down" },
+    "timecourse": [
+      {"dataset":"scott_GNP","time":"E15","mean":0.22,"sd":0.08,"n":3},
+      {"dataset":"scott_GNP","time":"P1","mean":1.36,"sd":0.38,"n":2},
+      {"dataset":"hatten_GNP","time":"P56","mean":-1.36,"sd":0.07,"n":3} ] }]}
+```
+
+Exit status `0` if any gene resolved to an aligned timecourse, `2` otherwise.
+A gene with no transcript in the aligned matrices is reported under
+`not_aligned` (its summary metrics are still available via `query_gene.R`).
+
 ## Field dictionary
 
-Interpret against the pseudo-time index where **1 = E15, 2 = P0, 3 = P1,
-4 = P7, 5 = P12, 6 = P14, 7 = P18, 8 = P21, 9 = P56**, with fractional values
-from interpolation (so `t50 = 22` is deep in the P18–P56 range).
+**Two time axes — do not confuse them:**
+
+- The interpolated metrics `t50`, `time_of_max`, `time_of_min` are indices on
+  the **63-point daily axis** E15,E16,…,E20,P0,P1,…,P56, i.e.
+  **1 = E15, 7 = P0, 8 = P1, 14 = P7, 19 = P12, 21 = P14, 25 = P18, 28 = P21,
+  63 = P56** (fractional between days). So `t50 = 22` ≈ **P15**, and
+  `time_of_max = 8` = **P1**. Use the companion `*_day` fields
+  (`t50_day`, `time_of_max_day`, `time_of_min_day`) for the human-readable
+  label — you rarely need the raw index.
+- The 9 actually-sampled time points (`MT_PSEUDO_TIME`: E15, P0, P1, P7, P12,
+  P14, P18, P21, P56) are what the observed timecourse values (below) are
+  reported at.
 
 | Field | Meaning |
 |-------|---------|
 | `gene` | MGI gene symbol (the lookup key) |
 | `transcript_id`, `gene_id` | Ensembl transcript / gene id |
 | `chr`, `start`, `end`, `strand` | genomic location (mm, Ensembl coords) |
-| `t50` | pseudo-time index at which the gene reaches 50% of its total change — *when it switches*. Lower = earlier. `t50_scott`/`t50_hatten` are the per-dataset values. |
+| `t50` / `t50_day` | daily-axis index / day label at which the gene reaches 50% of its total change — *when it switches*. Lower = earlier. `t50_scott`/`t50_hatten` are the per-dataset raw indices. |
 | `log2fc` | magnitude of change over development, log2, **unsigned**. `log2fc_scott`/`log2fc_hatten` per dataset. |
 | `signed_log2fc` | `log2fc × direction` (positive = up, negative = down) |
 | `direction` / `direction_label` | `+1`/`"up"` = increases with differentiation; `-1`/`"down"` = decreases |
-| `time_of_max` / `time_of_min` | pseudo-time index of peak / trough expression |
+| `time_of_max` / `time_of_max_day`, `time_of_min` / `time_of_min_day` | daily-axis index / day label of peak / trough expression |
 | `max_category` | time-of-peak bin: `E15` (peaks embryonic), `P0_7` (peaks early postnatal), `P14_P56` (peaks late), or `unchanged` / `unexpressed` |
-| `t50_category` | `Early` (t50 < 6, ~by P14), `Mid` (6–18), `Late` (>18) |
+| `t50_category` | `Early` (t50 < 6 → switches by ~E20/P0), `Mid` (6–18 → ~P0–P12), `Late` (>18 → after ~P12) |
 | `kinetic_class` | combined `Max_<maxcat> t50_<t50cat>` label — the primary grouping used in figures |
 | `fc_class` | `0-1 log2FC` / `1-2 log2FC` / `>2 log2FC` |
 | `expressed` | TRUE if called expressed in either dataset (binarized max expression) |
@@ -115,7 +156,7 @@ Genes not called expressed are `unexpressed`. These two labels fill
 ## Generating figures
 
 ```bash
-Rscript R/02_timecourse_plots.R          # standard figure set -> figures/
+Rscript R/03_timecourse_plots.R          # standard figure set -> figures/
 Rscript R/query_gene.R <genes> --plot    # ad-hoc per-gene timelines
 ```
 

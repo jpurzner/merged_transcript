@@ -25,6 +25,10 @@ Rscript R/query_gene.R Ezh2
 Rscript R/query_gene.R Ezh2 Gabra6 Sox2 Atoh1 --format table \
   --fields gene,t50,log2fc,direction_label,kinetic_class,fc_class
 
+# Get the numerical timecourse (per-time-point values behind the plot)
+Rscript R/timecourse_values.R Ccnd1
+Rscript R/timecourse_values.R Ezh2 Gabra6 --format table
+
 # Render a timecourse plot for one or more genes
 Rscript R/query_gene.R Ezh2 Neurod1 --plot --plot-format png
 
@@ -42,6 +46,7 @@ agent should read before querying.
 merged_transcript/
 ├── R/
 │   ├── query_gene.R              ← the API: gene -> kinetics (JSON/table/tsv), optional plot
+│   ├── timecourse_values.R      ← the numerical timecourse: gene -> per-time-point values
 │   ├── run_pipeline.R            ← orchestrator (--step normalize|align|merge|plots|index|all)
 │   ├── 01_normalize_and_merge.R ← STAGE 1: DESeq2-normalize Scott, 2^ Hatten, merge on annotation
 │   ├── 02_align_timecourse.R    ← STAGE 2: interpolate + align -> alignment datasets + t50 table
