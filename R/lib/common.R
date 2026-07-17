@@ -46,6 +46,10 @@ MT_TOC_T50      <- file.path(MT_DATA, "toc_t50_2023_05_17.txt")
 MT_QUERY_INDEX  <- file.path(MT_DATA, "timecourse_query_index.tsv")
 MT_EXPR_RDATA   <- file.path(MT_DATA, "log2_norm_list_shift.RData")
 
+# Alignment datasets produced by 02_align_timecourse.R
+MT_ALIGN_RDATA    <- file.path(MT_DATA, "alignment_datasets.RData")
+MT_NORMMERGE_RDATA<- file.path(MT_DATA, "normalized_merged.RData")
+
 # Raw inputs for the reproducible merge (01_load_and_merge.R). These live in
 # data/raw/ as symlinks to their original locations and are git-ignored; see
 # data/raw/README.md. Any path can be overridden with the matching env var.
@@ -118,10 +122,24 @@ mt_load_toc <- function(path = MT_TOC_T50) {
 
 # Load the aligned, row-normalized log2 expression matrices used for plotting.
 # Returns list(scott = <matrix 11 cols>, hatten = <matrix 18 cols>).
+# Prefers the standalone log2_norm_list_shift.RData; falls back to pulling it
+# out of the full alignment_datasets.RData bundle if that is all that's present.
 mt_load_expr <- function(path = MT_EXPR_RDATA) {
   e <- new.env()
-  load(path, envir = e)
-  L <- e$log2_norm_list_shift
+  if (file.exists(path)) {
+    load(path, envir = e); L <- e$log2_norm_list_shift
+  } else if (file.exists(MT_ALIGN_RDATA)) {
+    load(MT_ALIGN_RDATA, envir = e); L <- e$alignment_datasets$log2_norm_list_shift
+  } else {
+    stop("No aligned expression found. Run:  Rscript R/run_pipeline.R --step merge")
+  }
   names(L) <- c("scott_GNP", "hatten_GNP")
   L
+}
+
+# Load the full alignment-datasets bundle produced by 02_align_timecourse.R.
+mt_load_alignment <- function(path = MT_ALIGN_RDATA) {
+  if (!file.exists(path))
+    stop("Missing ", path, ". Run:  Rscript R/run_pipeline.R --step merge")
+  e <- new.env(); load(path, envir = e); e$alignment_datasets
 }

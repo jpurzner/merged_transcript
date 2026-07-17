@@ -129,9 +129,14 @@ Standard outputs in `figures/`:
 
 - Canonical merged table: `data/toc_t50_2023_05_17.txt` (115 columns; the slim
   index is derived from it). This is the source of truth for the API and figures.
-- Aligned expression matrices for plotting: `data/log2_norm_list_shift.RData`.
-- Rebuild from raw: `Rscript R/run_pipeline.R --step merge` (needs the raw
-  inputs symlinked in `data/raw/`; see `data/raw/README.md`). The rebuild
+- Aligned expression matrices for plotting: `data/log2_norm_list_shift.RData`;
+  the full alignment datasets (normalization → interpolation → alignment
+  intermediates) are bundled in `data/alignment_datasets.RData` — see
+  `data/README.md`.
+- Rebuild from raw in two stages: `Rscript R/run_pipeline.R --step normalize`
+  (DESeq2-normalize + merge) then `--step align` (interpolate + align + t50),
+  or `--step merge` for both. Needs the raw inputs symlinked in `data/raw/`
+  (see `data/raw/README.md`). The rebuild
   reproduces the kinetic metrics of the canonical table **exactly** (t50,
   fold change, time-of-max: Pearson r = 1; direction: 100% agreement) and
   ~93% of the categorical `kinetic_class` calls — the difference is confined

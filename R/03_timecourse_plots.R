@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# 02_timecourse_plots.R
+# 03_timecourse_plots.R
 #
 # Generate the standard timecourse figures from the shipped, precomputed
 # artifacts (data/log2_norm_list_shift.RData + data/timecourse_query_index.tsv).

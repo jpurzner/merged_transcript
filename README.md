@@ -41,36 +41,47 @@ agent should read before querying.
 ```
 merged_transcript/
 ├── R/
-│   ├── query_gene.R           ← the API: gene -> kinetics (JSON/table/tsv), optional plot
-│   ├── run_pipeline.R         ← orchestrator (--step merge|plots|index|all)
-│   ├── 01_load_and_merge.R    ← rebuild the merged table from raw (DESeq2 + merge + t50)
-│   ├── 02_timecourse_plots.R  ← generate the standard figures
-│   ├── 03_build_query_index.R ← slim the 115-col table into the query index
-│   └── lib/                    ← shared helpers (common.R) + the timecourse functions
-├── data/
+│   ├── query_gene.R              ← the API: gene -> kinetics (JSON/table/tsv), optional plot
+│   ├── run_pipeline.R            ← orchestrator (--step normalize|align|merge|plots|index|all)
+│   ├── 01_normalize_and_merge.R ← STAGE 1: DESeq2-normalize Scott, 2^ Hatten, merge on annotation
+│   ├── 02_align_timecourse.R    ← STAGE 2: interpolate + align -> alignment datasets + t50 table
+│   ├── 03_timecourse_plots.R    ← generate the standard figures
+│   ├── 04_build_query_index.R   ← slim the 115-col table into the query index
+│   └── lib/                       ← shared helpers (common.R) + the timecourse functions
+├── data/                          ← see data/README.md for every dataset
 │   ├── toc_t50_2023_05_17.txt      ← canonical merged table (shipped, 115 cols)
 │   ├── timecourse_query_index.tsv  ← slim query index (built from the above)
 │   ├── log2_norm_list_shift.RData  ← aligned expression matrices (for plotting)
 │   └── raw/                         ← symlinks to raw inputs (git-ignored)
-├── figures/                    ← generated timecourse images
-└── docs/SKILL.md               ← agent-facing skill document
+├── figures/                       ← generated timecourse images
+└── docs/SKILL.md                  ← agent-facing skill document
 ```
 
 ## How the pipeline works
 
-1. **Load + normalize.** Scott RNA-seq counts are DESeq2 size-factor
-   normalized and tested across time (P7–P14, P1–P14, E15–P7). Hatten TRAP
-   array values are un-logged; limma adjusted p-values summarized.
-2. **Merge.** The two series are matched on Ensembl gene/transcript
-   annotation to a shared set of transcripts.
-3. **Align.** Each series is interpolated onto the E15–P56 day axis and
-   shifted so their overlapping days agree; expression is row-normalized to
-   log2 fold change vs each gene's mean.
-4. **Summarize.** Per transcript: `t50` (time to 50% of total change),
-   `log2fc`, `direction`, time of peak, and expression call → **kinetic
-   class** (`Max_<when-it-peaks> t50_<when-it-switches>`).
-5. **Serve.** The slim index powers `query_gene.R`; the aligned matrices power
-   the figures.
+The rebuild is two stages (`--step normalize` then `--step align`, or
+`--step merge` for both):
+
+**Stage 1 — normalize + merge** (`01_normalize_and_merge.R`)
+1. **Normalize.** Scott RNA-seq counts are DESeq2 size-factor normalized and
+   tested across time (P7–P14, P1–P14, E15–P7). Hatten TRAP array values are
+   un-logged (2^); limma adjusted p-values summarized to a per-gene minimum.
+2. **Merge.** The two series are matched on Ensembl gene/transcript annotation
+   to a shared set of transcripts → `data/normalized_merged.RData`.
+
+**Stage 2 — align + summarize** (`02_align_timecourse.R`)
+3. **Align.** Expression is row-normalized to log2 fold change vs each gene's
+   own mean, averaged per time point, interpolated onto the E15–P56 day axis,
+   and shifted so the two series' overlapping days agree. This produces the
+   **alignment datasets** → `data/alignment_datasets.RData` (+ the
+   `log2_norm_list_shift.RData` the figures use). See `data/README.md`.
+4. **Summarize.** Per transcript from the aligned data: `t50` (time to 50% of
+   total change), `log2fc`, `direction`, time of peak, and an expression call
+   → **kinetic class** (`Max_<when-it-peaks> t50_<when-it-switches>`) →
+   `toc_t50`.
+
+**Serve.** `04_build_query_index.R` slims `toc_t50` into the index that powers
+`query_gene.R`; the aligned matrices power the figures (`03_timecourse_plots.R`).
 
 ## Requirements
 

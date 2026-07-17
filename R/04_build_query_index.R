@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# 03_build_query_index.R
+# 04_build_query_index.R
 #
 # Reduce the 115-column merged table (toc_t50) to a slim, query-optimized
 # index: one row per transcript, gene symbol as the lookup key, only the

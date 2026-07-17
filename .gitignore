@@ -3,9 +3,13 @@
 data/raw/*
 !data/raw/README.md
 
-# Rebuilt artifacts from `--step merge` (canonical shipped versions are kept)
+# Rebuilt / intermediate artifacts from `--step merge` (canonical shipped
+# versions are kept). The alignment datasets regenerate bit-identically, so
+# only the large intermediate bundles are ignored, not the code that makes them.
 data/toc_t50_rebuilt.txt
 data/log2_norm_list_shift_rebuilt.RData
+data/normalized_merged.RData
+data/alignment_datasets.RData
 
 # Ad-hoc per-gene plots from `query_gene.R --plot` (transient).
 # The standard figure set (kinetic_class_timelines, example_genes_timeline,
