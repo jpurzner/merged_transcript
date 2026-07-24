@@ -95,6 +95,7 @@ mt_save_gene_plot <- function(genes, file = NULL, format = c("pdf", "png"),
   cols <- min(4, n); rows <- ceiling(n / cols)
   if (is.null(width))  width  <- 2.6 * cols + 1
   if (is.null(height)) height <- 2.6 * rows + 1
-  ggplot2::ggsave(file, p, width = width, height = height, limitsize = FALSE)
+  ggplot2::ggsave(file, p, width = width, height = height, limitsize = FALSE,
+                  bg = "white")
   file
 }

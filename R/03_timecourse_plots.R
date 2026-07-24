@@ -63,7 +63,7 @@ p1 <- plot_group_timeline(
   add_t50 = t50_tbl, time_ref = mt_time_ref()
 )
 ggsave(file.path(MT_FIGURES, "kinetic_class_timelines.pdf"), p1,
-       width = 11, height = 10, limitsize = FALSE)
+       width = 11, height = 10, limitsize = FALSE, bg = "white")
 
 # ---------------------------------------------------------------------------
 # 2. Example marker genes across the differentiation axis.
@@ -75,7 +75,7 @@ examples <- examples[examples %in% idx$gene]
 p2 <- mt_plot_genes(examples, expr = expr, idx = idx,
                     ylimits = c(-3, 3), col_num = 3, text_size = 13)
 ggsave(file.path(MT_FIGURES, "example_genes_timeline.pdf"), p2,
-       width = 10, height = 7, limitsize = FALSE)
+       width = 10, height = 7, limitsize = FALSE, bg = "white")
 
 # ---------------------------------------------------------------------------
 # 3. t50 vs signed fold change, faceted by time-of-max category.
@@ -95,6 +95,6 @@ p3 <- ggplot(sc, aes(x = t50_disp, y = signed_log2fc)) +
        y = "signed log2 fold change",
        title = "Transcript kinetics by time of peak expression") +
   theme_bw(base_size = 13)
-ggsave(file.path(MT_FIGURES, "t50_vs_log2fc.pdf"), p3, width = 10, height = 4)
+ggsave(file.path(MT_FIGURES, "t50_vs_log2fc.pdf"), p3, width = 10, height = 4, bg = "white")
 
 message("Done. Figures written to: ", MT_FIGURES)
