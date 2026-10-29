@@ -84,6 +84,7 @@ merged_transcript/
 │   ├── 04_build_query_index.R   ← slim the 115-col table into the query index
 │   ├── figures/sankey_classification.R ← gene-classification Sankey (paper Fig S1)
 │   └── lib/                       ← shared helpers (common.R) + the timecourse functions
+├── python/                        ← Python recreation, generalized to N datasets (see python/README.md)
 ├── analysis/                      ← source Rmds for all the RNA-seq figures (see analysis/README.md)
 ├── references/                    ← paper link, citation, gene-set mapping
 ├── data/                          ← see data/README.md for every dataset
@@ -120,6 +121,21 @@ The rebuild is two stages (`--step normalize` then `--step align`, or
 
 **Serve.** `04_build_query_index.R` slims `toc_t50` into the index that powers
 `query_gene.R`; the aligned matrices power the figures (`03_timecourse_plots.R`).
+
+## Python & adding datasets
+
+[`python/`](python/) is a Python recreation of this pipeline, **generalized to
+any number of datasets** and to **incrementally adding** a dataset to an
+existing merge:
+
+```python
+from merged_timecourse import merge_datasets, add_dataset
+merged = merge_datasets([scott, hatten, third, ...])   # N datasets
+merged = merged.add_dataset(new_dataset)               # anchors onto the existing merge
+```
+
+On the same normalized inputs it reproduces the R `toc_t50` kinetics (avg_max
+identical, t50 / fold-change r = 1). See [`python/README.md`](python/README.md).
 
 ## Requirements
 

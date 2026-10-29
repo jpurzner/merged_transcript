@@ -16,6 +16,15 @@ data/alignment_datasets.RData
 # t50_vs_log2fc) IS tracked so it renders in the repo.
 figures/timeline_*
 
+# Python validation fixtures (large; regenerate with python/tests/export_fixtures.R)
+python/tests/fixtures/*_normalized.tsv
+python/tests/fixtures/expected_kinetics.tsv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
 # R
 .Rhistory
 .RData
