@@ -16,3 +16,12 @@ place files with these names here (or point the matching env var at them).
 The shipped `data/toc_t50_2023_05_17.txt` was produced from exactly these
 inputs and is the canonical merged table; you only need the raw files to
 re-derive it.
+
+## Data provenance
+
+- **Hatten TRAP** (`hatten_trap_microarray*`): cerebellar granule-neuron
+  NeuroD1-TRAP developmental profiling from the Hatten lab, GEO **GSE74400**
+  (Zhu et al., *Neuron* 89:100–112, 2016; DOI 10.1016/j.neuron.2015.11.021).
+  See `../../references/README.md`.
+- **Scott RNA-seq** (`scott_rnaseq_counts.txt`): GNP bulk RNA-seq generated for
+  Purzner et al. 2025.

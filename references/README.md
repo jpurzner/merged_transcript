@@ -52,6 +52,35 @@ require `fc_class == ">2 log2FC"` plus the scRNA-seq lineage / cell-cycle
 exclusions applied in the Sankey (see `R/figures/sankey_classification.R` and
 `analysis/3_gene_classification.Rmd`).
 
+## Data sources
+
+The merged timecourse combines two datasets:
+
+**Hatten TRAP microarray** — the P0–P56 arm. Cerebellar granule-neuron
+NeuroD1-TRAP developmental expression profiling from the **Hatten lab**,
+deposited at GEO **[GSE74400](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE74400)**
+(SuperSeries GSE74402), published in:
+
+> Zhu X, Girardo D, Govek EE, John K, Mellén M, Tamayo P, Mesirov JP, Hatten ME.
+> **Role of Tet1/3 Genes and Chromatin Remodeling Genes in Cerebellar Circuit
+> Formation.** *Neuron* 89(1):100–112 (2016).
+> DOI: [10.1016/j.neuron.2015.11.021](https://doi.org/10.1016/j.neuron.2015.11.021);
+> [PMC4707072](https://pmc.ncbi.nlm.nih.gov/articles/PMC4707072).
+
+**Scott RNA-seq** — the E15–P14 arm. GNP bulk RNA-seq generated for Purzner et
+al. 2025 (see the paper's Methods for processing).
+
+```bibtex
+@article{Zhu2016Tet,
+  title   = {Role of Tet1/3 Genes and Chromatin Remodeling Genes in Cerebellar Circuit Formation},
+  author  = {Zhu, Xiaodong and Girardo, David and Govek, Eve-Ellen and John, Kristin and
+             Mell{\'e}n, Marian and Tamayo, Pablo and Mesirov, Jill P and Hatten, Mary E},
+  journal = {Neuron},
+  volume  = {89}, number = {1}, pages = {100--112}, year = {2016},
+  doi     = {10.1016/j.neuron.2015.11.021}
+}
+```
+
 ## Licensing
 
 The paper itself is linked, not redistributed here. Reuse of the manuscript is

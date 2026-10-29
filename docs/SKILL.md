@@ -24,6 +24,10 @@ per-transcript kinetic metrics:
 | `scott_GNP`  | RNA-seq          | E15, P1, P7, P14         | 11      |
 | `hatten_GNP` | TRAP microarray  | P0, P7, P12, P18, P21, P56 | 18    |
 
+Data sources: `hatten_GNP` is the Hatten-lab granule-neuron NeuroD1-TRAP data,
+GEO GSE74400 (Zhu et al., *Neuron* 89:100–112, 2016, doi 10.1016/j.neuron.2015.11.021);
+`scott_GNP` RNA-seq was generated for Purzner et al. 2025. See `references/`.
+
 Pseudo-time axis: **E15 → P0 → P1 → P7 → P12 → P14 → P18 → P21 → P56**.
 
 The two series are interpolated onto this axis, aligned (shifted so their

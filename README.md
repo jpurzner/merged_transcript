@@ -15,6 +15,11 @@ Hatten TRAP array (P0…P56)     ┘   → kinetic classes → query index + fig
 Pseudo-time axis: **E15 → P0 → P1 → P7 → P12 → P14 → P18 → P21 → P56**.
 Coverage: 24,379 genes / 24,525 transcripts.
 
+Data sources: the Hatten TRAP arm (P0–P56) is the Hatten-lab granule-neuron
+NeuroD1-TRAP data, GEO [GSE74400](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE74400)
+(Zhu et al., *Neuron* 2016); the Scott RNA-seq arm (E15–P14) was generated for
+Purzner et al. 2025. See [`references/`](references/).
+
 ## Quick start
 
 ```bash
