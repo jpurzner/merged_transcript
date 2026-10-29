@@ -1,0 +1,1520 @@
+---
+title: "EZH2_GNP_DIFF_FigS1"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Figure S1
+
+The point of figure 1 is to show the reader how genes that change during differentiation were assigned.  
+
+Why did we chose the data sets. 
+
+The bulk RNAseq was sequenced quite deeply which allows us to clearly assign a transcriptional start site for each of our genes.  Many of the canonical transcriptional start sites were not correct.
+
+Hatten TRAP data gives us the later time points which are not available in purified cells or any single cell suspension as much of the RNA is in processes. 
+
+The Taylor lab scRNAseq allows us to remove contaminated genes. 
+
+
+Details on gene selection. 
+
+To indentify epigenetic regulators of differentiation we needed an accurate and complete list of genes that change during differentiation. 
+
+
+
+
+A. Genes that are excluded 
+B. Genes that transcriptionally change 
+C. 
+
+
+```{r, eval = FALSE}
+install.packages('factoextra')
+# install.packages("devtools")
+devtools::install_github("davidsjoberg/ggsankey")
+
+install.packages("ggpubr")
+devtools::install_github("davidsjoberg/ggsankey")
+
+```
+
+```{r}
+library(scales)
+library(ggforce)
+library(latex2exp)
+library(directlabels)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(devtools)
+library(ggplot2)
+library(reshape2)
+library(cowplot)
+library(stringr)
+library(ggpubr)
+library(tidyr)
+library(DescTools)
+library(RColorBrewer)
+library(pheatmap)
+library(gridExtra)
+library(GGally)
+library(ggpubr)
+library(ggsankey)
+
+```
+
+# Load the required data tables 
+
+```{r load_data}
+sce_agg_merged_cc_ann <- read.table(file = "~/Dropbox/GNP_MB_integrate/Ezh2_2022/sce_contaminant_full.txt", 
+                  header= TRUE,
+                sep = "\t")
+
+```
+
+Unexpressed 
+
+scRNAseq exclusion (2 options the cell types or the subgroups)
+  GN not expressed 
+  GN expressed 
+
+GN Expressed but unchanging 
+
+Not excluded 
+  Highest E15 
+  P0-7 
+  Highest P14-P56 
+
+# Sample code from stackoverflow
+
+https://stackoverflow.com/questions/59426219/how-to-add-direct-labels-to-a-bar-chart-in-ggplot-for-numeric-x-axis
+
+
+```{r, eval = FALSE}
+library(ggplot2)
+library(ggrepel)
+library(stringr) 
+library(dplyr)
+
+
+```
+
+
+
+
+```{r, fig.height= 3.5, fig.width= 3}
+
+label_genes <- c("Meis2", "Lhx9", "Gli1", "Ccnd1","Ccnd2", "Meis2", "St8sia5", "Gabra6", "Ablim1", "Unc5b", "Wnt7a", "Phyhip", "Hr", "Cbx7")
+
+max_cat_names <- list( E15 = "Maximum at E15", P0_7 = "Maximum at P0 to P7", P14_P56 =  "Maximum at P14 to P56")
+max_cat_labeller <- function(variable,value){
+  return(max_cat_names[value])
+}
+
+
+
+
+
+
+
+
+```
+
+
+
+```{r, fig.height= 6, fig.width= 6}
+
+
+max_cat_names <- list( E15 = "Maximum at E15", P0_7 = "Maximum at P0 to P7", P14_P56 =  "Maximum at P14 to P56")
+max_cat_labeller <- function(variable,value){
+  return(max_cat_names[value])
+}
+
+sce_agg_merged_cc_ann_diff <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_cat == "P14_P56") %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") 
+
+
+diff_timecourse_plot <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_cat == "P14_P56") %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::mutate(avg_t50 =  Winsorize(avg_t50, maxval = 30)) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  
+
+  ggplot(aes(x = avg_t50, y = avg_fc)) + 
+  geom_point(aes(), 
+             size = 1.5, alpha = 0.5, shape =  16) + 
+  # circle the labeled points 
+  geom_point(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes & max_cat == "P14_P56"), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5)), 
+           shape = 1,         # Hollow squares
+               size = 4, alpha = 1) + 
+  # add the text label 
+
+  # draw rectangles around the points 
+
+    geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes
+                                  & max_cat == "P14_P56" 
+                                  & avg_fc >= 3 
+                                  & avg_fc  < 6), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           size = 6, 
+           seed = 4, 
+           colour = "darkorchid2",
+           min.segment.length = 0, 
+           force = 20 
+            ) + 
+     geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes
+                                  & max_cat == "P14_P56" 
+                                  & avg_fc >=  6), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           size = 6, 
+           seed = 22, 
+           colour = "darkorchid2",
+           min.segment.length = 0, 
+           force = 20, 
+            nudge_x = 5, 
+            nudge_y = - 0.5) + 
+    geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes 
+                                  & max_cat == "P14_P56"
+                                  & avg_fc < 3), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           size = 6, 
+           seed = 2, 
+           colour = "darkorchid2",
+           min.segment.length = 0, 
+           force = 30, 
+           nudge_y = 1.5,
+           nudge_x = -1) + 
+  scale_y_continuous(breaks = c(0,2,4,6)) + 
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change") +
+  scale_colour_manual(values = c( "Increase late" = "royalblue3",  "Increase mid" = "darkorange3", "other" = "grey")) +
+  #scale_color_manual(values = k2color[,1]) +
+  ##scale_fill_manual(values = k2color[,1]) +
+  #scale_shape_manual(values=1:nlevels(toc_t50$k_15_comp)) +
+  ylab("log2 fold change") +
+  theme_classic() +
+  theme(legend.position="none", 
+        text = element_text(size = 26), 
+          panel.grid.major =element_blank(),
+          #panel.grid.major.y =element_line(colour = "grey" ),
+          panel.grid.minor=element_blank(),
+          plot.background = element_rect(fill = "white", colour = "white"), 
+          strip.background = element_blank()) + 
+  
+  annotate("text", x = 12, y = 7.9, label = "Increase Earlier", colour = "darkorange3", size = 8) + 
+  annotate("text", x = 25, y = 6.1, label = "Increase Later", colour = "royalblue3", size = 8) 
+  
+          #panel.border=element_blank())
+
+
+diff_timecourse_plot
+
+# Save the plot to a file
+ggsave(filename = "~/Dropbox/Q_research/EZH2 final/figures/figures from R/t50_avg_fc_scatter.png", plot = diff_timecourse_plot, width = 6, height = 6)
+
+
+```
+
+
+```{r, fig.height= 8, fig.width= 8}
+max_timecourse_plot <- sce_agg_merged_cc_ann %>%
+  #dplyr::filter(!(max_cat %in% c("unchanged", "unexpressed"))) %>%
+  dplyr::mutate(t50_cat = factor(t50_cat, levels = c("Early", "Mid", "Late"))) %>%
+  dplyr::filter(max_cat != "unexpressed", max_cat != "unchanged") %>% 
+  ggplot(aes(x = Winsorize(avg_t50, maxval = 30), 
+           y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5))) + 
+  geom_point(aes(color=exclude_cat), 
+             size = 1.25, alpha = 0.9, shape = 16) + 
+  # circle the labeled points 
+  geom_point(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5)), 
+           shape = 1,         # Hollow squares
+               size = 4, alpha = 1) + 
+  geom_hline(yintercept = 0) + 
+  # add the text label 
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           size = 7) + 
+  scale_y_continuous(breaks = c(0,2,4,6), 
+                     expand = c(0, 0),
+                     name = "log2 fold change") + 
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change (t50)", 
+                     expand = c(0, 0)) + 
+  scale_colour_discrete(name = "Category for time at 50% max change") + 
+  facet_grid(group_1~max_cat) +
+  #facet_wrap(~exclude_cat) +
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+  #scale_color_manual(values = k2color[,1]) +
+  ##scale_fill_manual(values = k2color[,1]) +
+  #scale_shape_manual(values=1:nlevels(toc_t50$k_15_comp)) +
+  theme_classic() +
+  theme(legend.position="bottom", 
+        text = element_text(size = 18),
+        strip.text.x = element_text(size = 20),
+          panel.grid.major =element_blank(),
+          #panel.grid.major.y =element_line(colour = "grey" ),
+          panel.grid.minor=element_blank(),
+          plot.background = element_rect(fill = "white", colour = "white"), 
+          strip.background = element_blank()) + 
+  guides(colour = guide_legend(override.aes = list(size=10)))
+          #panel.border=element_blank())
+
+
+max_timecourse_plot
+
+
+
+```
+
+
+Here is the old code for the category 
+ Add the maximum value category 
+```{r, eval = FALSE}
+
+toc_t50$max_cat <- cut(toc_t50$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+toc_t50$t50_cat <- cut(toc_t50$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+
+toc_t50$max_t50_cat <- str_c("Max_",toc_t50$max_cat, " ","t50_", toc_t50$t50_cat )
+
+
+```
+
+
+```{r}
+table(toc_t50$avg_min, toc_t50$avg_max)
+pseudo_time
+time_points
+
+
+```
+
+
+```{r}
+
+sce_agg_merged_cc_ann <- sce_agg_merged_cc_ann %>% 
+  dplyr::mutate(max_cat_exclude =
+                 case_when(
+      max_cat == "E15" &  avg_min > 6 ~ "E15",
+      max_cat == "E15" &  avg_min <= 6 ~ "E15_exclude",
+      max_cat == "P0_7" &  (avg_min  < 6 | avg_min > 20) ~ "P0_P7",
+      max_cat == "P0_7" &  (avg_min  >= 6 | avg_min <= 20) ~ "P0_P7_exclude",
+      max_cat == "P14_P56" &  avg_min < 19  ~ "P14_P56",
+      max_cat == "P14_P56" &  avg_min >= 19 ~ "P14_P56_exclude",
+      TRUE                                                                                      ~ "other"
+    )
+)
+
+max_min_excluded_genes <-  sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_cat_exclude %in% c("E15_exclude",  "P0_P7_exclude", "P14_P56_exclude")) %>%
+  dplyr::select(ensembl_gene_id)
+
+table(sce_agg_merged_cc_ann$max_cat_exclude)
+
+```
+
+
+Make the sankey plot 
+
+Example code from https://r-charts.com/flow/sankey-diagram-ggplot2/
+
+
+
+What order do you want to screen genes 
+Step 1: Remove unexpressed genes 
+Step 2: Remove genes that are expressed but are contaminant 
+Step 3: Remove genes that are not changing 
+Step 4: Split genes by max time 
+Step 5: Statistical testing of each group
+E15 DE  E15-P7 S 
+P0-7   E15-P7 S AND P7-P14 S AND P7-P21 H 
+P14-56  P7-P14 S AND P7-P21 S AND P7-P21 H  
+Minimal FC cutoff for each 
+
+
+
+
+
+For the supplementary data would want to show a figure for each fo the steps in gene exclusion 
+
+Step 1: Remove unexpressed genes 
+Figure: scatter plot of Scott vs Hatten transcript data
+Colour the genes of selected versus unselected 
+
+Step 2: Remove genes that are expressed but are contaminant 
+Figure showing relative counts of each dataset 
+
+Step 3a: Remove genes that are not changing 
+Fold change 
+
+Step 3b: Split genes by max time 
+max vs min time 
+E15, P0-7, P14-P56 
+
+Step 5: Statistical testing of each group
+t50 vs fold change selected verus not 
+
+```{r}
+
+
+
+```
+
+
+
+
+Code from https://rpubs.com/techanswers88/sankey-with-own-data-in-ggplot
+
+Ugly 
+If you change anything like adding new variables you need to add them to the colour vector 
+The position of the names in the colour vector determines their order 
+
+
+
+```{r}
+library(forcats)
+
+long_sce_temp <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(!is.na(expr)) %>%
+ #dplyr::mutate(max_cat2 = as.character(max_cat)) %>% 
+  dplyr::mutate(max_cat2 = ifelse(max_cat == "unexpressed", "excluded", max_cat)) %>%
+  dplyr::mutate(max_cat2 = ifelse(max_cat2 == "P14_P56", "P14 to P56", max_cat2)) %>%
+  dplyr::mutate(max_cat2 = ifelse(max_cat2 == "P0_7", "P0 to P7", max_cat2)) %>%
+  dplyr::mutate(step1 = factor(expr)) %>%
+  dplyr::mutate(step1 = recode(step1, "TRUE" = "Expressed", "FALSE" = "Unexpressed")) %>%
+  
+  dplyr::mutate(step2 = ifelse(expr == FALSE, "excluded", group_1)) %>%
+  dplyr::mutate(step2 = ifelse(group_1 %in% c("Dynically expressed in granule neuron lineage", "Unchanged expression"), "Granule neuron lineage", step2)) %>%
+  dplyr::mutate(step2 = ifelse(max_cat ==  "unexpressed",  "excluded", step2)) %>%
+    dplyr::mutate(step2 = recode(step2, "Granule neuron lineage" = "Granule neuron lineages", 
+                                      "Contaminated genes" = "Alternative lineage",
+                                      "Cell cycle" = "Cell cycle",
+                                      "excluded" = "excluded"))
+
+long_sce_temp <- long_sce_temp %>%
+  dplyr::mutate(step3 = ifelse( avg_fc >=  1, "Dynamically expressed", "unchanged")) %>%
+  dplyr::mutate(step3 = ifelse(expr == FALSE, "excluded", step3)) %>%
+  dplyr::mutate(step3 = ifelse(group_1 %in% c("Cell cycle", "Contaminated genes", "Unexpressed"), "excluded", step3)) 
+
+long_sce_temp <- long_sce_temp %>%
+  dplyr::mutate(step4 = cut(avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0 to P7", "P14 to P56"))) %>%
+  dplyr::mutate(step4 = as.character(step4)) %>%
+  dplyr::mutate(step4 = ifelse(step3 == "Dynamically expressed", step4, step3)) %>%
+  dplyr::mutate(step4 = ifelse(expr == FALSE, "excluded", step4))  %>%
+  dplyr::mutate(step4 = ifelse(grepl("_exclude", max_cat_exclude), "incompatible max-min", step4)) %>%
+  dplyr::mutate(step4 = ifelse(step3 == "excluded", "excluded", step4 ))
+  
+long_sce_temp <-  long_sce_temp %>%
+   dplyr::mutate(step5 = step4) %>%
+  dplyr::mutate(step5 = ifelse(!(exclude_cat %in% c("other", "GN_expressed_not_changing")), "excluded", max_cat2 )) %>%
+  dplyr::mutate(step5 = ifelse( step4 %in% c("E15", "P0 to P7", "P14 to P56") & max_cat2 == "unchanged", "p-val inadequate", step4)) %>%
+   dplyr::mutate(step5 = ifelse(grepl("_exclude", max_cat_exclude), "excluded", step5)) 
+  
+long_sce_temp <-  long_sce_temp %>%
+  dplyr::mutate(step5b = step5) %>%
+  dplyr::mutate(step5b = ifelse(t50_cat == "Early" & max_cat2 == "P14 to P56", "increase before P0", step5b ))  %>%
+  dplyr::mutate(step5b = ifelse(step5b == "p-val inadequate", "unchanged", step5b )) %>%
+  dplyr::mutate(step5b = ifelse(expr == FALSE, "excluded", step5b)) %>%
+  dplyr::mutate(step5b = ifelse(group_1 %in% c("Cell cycle", "Contaminated genes", "Unexpressed"), "excluded", step5b)) %>%
+ dplyr::mutate(step5b = ifelse(grepl("_exclude", max_cat_exclude), "excluded", step5b))
+
+
+long_sce_temp <- long_sce_temp %>%
+  dplyr::mutate(step6 = case_when(  
+    avg_fc < 1                ~  "0-1 log2FC",
+    avg_fc >=1 & avg_fc < 2   ~  "1-2 log2FC", 
+    avg_fc >= 2               ~  ">2 log2FC"     
+    ))  %>%
+  dplyr::mutate(step6 = paste(step5, step6) ) %>%
+  dplyr::mutate(step6 = ifelse((step5 %in% c("E15", "P0 to P7", "P14 to P56")), step6, "excluded" )) %>%
+  dplyr::mutate(step6 = ifelse(step5b  ==  "increase before P0", "excluded", step6 ))  
+  
+long_sce_temp <- long_sce_temp %>%
+  dplyr::mutate(step7 = case_when(  
+    step6 == "P14 to P56 >2 log2FC" ~  "differentiation genes",
+    step6 == "P0 to P7 >2 log2FC"   ~  "proliferation genes",
+    step6 == "E15 >2 log2FC" ~ "embryonic genes"
+    #TRUE                            ~ "other"
+    ))
+  
+
+long_sce <-   long_sce_temp %>%
+  #dplyr::select(common_id, max_t50_cat, group_1, group_2) %>%
+  ggsankey::make_long( step1, step2, step3, step4, step5, step5b, step6, step7)# %>%
+  #dplyr::mutate(node = factor(node))
+
+
+dagg <- long_sce%>%
+  dplyr::group_by(x,node)%>%
+  tally()
+
+
+long_sce <- long_sce %>% 
+  dplyr::left_join(dagg, by=c('x'='x', 'node'='node'))
+
+```
+
+Build the horizontal Sankey plot 
+
+```{r, fig.width= 6, fig.height= 3.5}
+
+# Define the custom colors using RColorBrewer
+
+re_order_sankey <- c("Expressed",  "Granule neuron lineages", "Dynamically expressed", "P14 to P56", "P0 to P7", "E15", "Cell cycle", "Alternative lineage", "increase before P0", "incompatible max-min", "p-val inadequate", "P14 to P56 >2 log2FC", "P14 to P56 1-2 log2FC", "P0 to P7 >2 log2FC", "P0 to P7 1-2 log2FC", "E15 >2 log2FC", "E15 1-2 log2FC", "differentiation genes", "proliferation genes", "embryonic genes",  "unchanged", "excluded", "Unexpressed", NA)
+re_order_sankey <- rev(re_order_sankey)
+
+long_sce$node <- factor(long_sce$node, levels = re_order_sankey, ordered = TRUE )
+
+long_sce <- long_sce %>% 
+    dplyr::group_by(node) %>%
+    dplyr::arrange(desc(node), desc(next_node)) %>%
+    dplyr::filter(!is.na(node))
+
+# purple for scRNAseq data 
+
+sankey_colours <- c("white","gray40", "gray60", "lightblue4", "springgreen4", "red3", "royalblue3",  "springgreen1", "springgreen4", "red1", "red3", "royalblue1", "royalblue3", "lightblue2", "lightblue2" , "lightblue2", "mediumpurple", "mediumorchid", "springgreen3", "red2", "royalblue2", "dodgerblue3", "dodgerblue2", "dodgerblue")
+# Assign custom colors to the variable names
+names(sankey_colours) <-  re_order_sankey
+
+#sankey_colours["increase before P0"] <- "lightblue2"
+
+
+max_cat_names <- list( E15 = "Maximum at E15", P0_7 = "Maximum at P0 to P7", P14_P56 =  "Maximum at P14 to P56")
+max_cat_labeller <- function(variable,value){
+  return(max_cat_names[value])
+}
+
+
+sankey_x_labs <- c("Remove genes unexpressed during the time course", "Remove genes that are contaminated from other cell lines", "Remove genes that change less then 2 fold", "Split changing genes based on when they arive at max", "Remove genes based on individual dataset differntial expression adjusted p-val" )
+
+sankey_x_labs_nl <- c("Step 1:\nRemove genes \nunexpressed during \nthe time course", 
+                   "Step 2:\nRemove genes \ncontaminated\nfrom other cell lines\nTaylor scRNAseq",
+                   "Step 3:\nRemove genes that\nchange less\nthen 2 fold",
+                   "Step 4:\nSplit changing genes\nbased on when they\narrive at max",
+                   "Step 5:\nRemove genes with \nadjusted p-val > 0.001 \nin differential expression \nfrom RNAseq or NeuroD1-TRAP",
+                   "Step 6:\nRemove differentiation\ngenes that\nincrease most\nprior to P0",
+                   "Step 7:\nSeperate\nby fold change",
+                   "Step 8:\nFinal groups")
+
+fc_cat_labeller <- function(var){
+  
+  fc_lab <- str_replace(var, "P14 to P56 ", "")
+  fc_lab <- str_replace(fc_lab, "P0 to P7 ", "")
+  fc_lab <- str_replace(fc_lab, "E15 ", "")
+  return(fc_lab)
+}
+
+
+gene_sankey_p <- long_sce %>%
+ ggplot( aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill =node,
+             #color = node,
+               label = paste0(fc_cat_labeller(node),"\nn=", n))) +
+   
+  #geom_sankey(node.color = 1, flow.alpha = .6, width = 0.25) +
+  geom_sankey( flow.alpha = .6, width = 0.25) +
+   #geom_sankey_label(size = 3, color = "white", space = 0.1)  +
+   geom_sankey_text(size = 4, color = "black")  +
+  theme_sankey(base_size = 16) + 
+   scale_fill_manual(values = sankey_colours) +
+   scale_x_discrete(labels =sankey_x_labs_nl) +
+       xlab(NULL)+
+   theme(legend.position = "none", 
+         axis.text.x = element_text(size = 10)) 
+   
+
+plot(gene_sankey_p)
+  
+table(sce_agg_merged_cc_ann$max_cat, sce_agg_merged_cc_ann$group_1)
+
+
+
+```
+
+
+Need to reduce the text so it will actually fit on the figure 
+
+```{r, fig.width= 5, fig.height= 3.5}
+
+# Define the custom colors using RColorBrewer
+
+re_order_sankey <- c("Expressed",  "Granule neuron lineages", "Dynamically expressed", "P14 to P56", "P0 to P7", "E15", "Cell cycle", "Alternative lineage", "increase before P0", "incompatible max-min", "p-val inadequate", "P14 to P56 >2 log2FC", "P14 to P56 1-2 log2FC", "P0 to P7 >2 log2FC", "P0 to P7 1-2 log2FC", "E15 >2 log2FC", "E15 1-2 log2FC", "differentiation genes", "proliferation genes", "embryonic genes",  "unchanged", "excluded", "Unexpressed", NA)
+re_order_sankey <- rev(re_order_sankey)
+
+long_sce$node <- factor(long_sce$node, levels = re_order_sankey, ordered = TRUE )
+
+long_sce <- long_sce %>% 
+    dplyr::group_by(node) %>%
+    dplyr::arrange(desc(node), desc(next_node)) %>%
+    dplyr::filter(!is.na(node))
+
+# purple for scRNAseq data 
+
+sankey_colours <- c("white","gray40", "gray60", "lightblue4", "springgreen4", "red3", "royalblue3",  "springgreen1", "springgreen4", "red1", "red3", "royalblue1", "royalblue3", "lightblue2", "lightblue2" , "lightblue2", "mediumpurple", "mediumorchid", "springgreen3", "red2", "royalblue2", "dodgerblue3", "dodgerblue2", "dodgerblue")
+# Assign custom colors to the variable names
+names(sankey_colours) <-  re_order_sankey
+
+#sankey_colours["increase before P0"] <- "lightblue2"
+
+
+max_cat_names <- list( E15 = "Maximum at E15", P0_7 = "Maximum at P0 to P7", P14_P56 =  "Maximum at P14 to P56")
+max_cat_labeller <- function(variable,value){
+  return(max_cat_names[value])
+}
+
+
+sankey_x_labs <- c("Remove genes unexpressed during the time course", "Remove genes that are contaminated from other cell lines", "Remove genes that change less then 2 fold", "Split changing genes based on when they arive at max", "Remove genes based on individual dataset differntial expression adjusted p-val" )
+
+sankey_x_labs_nl <- c("Step 1:\nRemove\nunexpressed\ngenes", 
+                   "Step 2:\nRemove genes\ncontaminated\nfrom other\nlineages",
+                   "Step 3:\nRemove genes\nthat change\n< 2 fold",
+                   "\nStep 4:\nSplit genes\nbased on time of\nmax and min\nexpression",
+                   "\nStep 5:\nRemove genes\np-val > 0.001\nin differential\nexpression",
+                   "\nStep 6:\nRemove\ndifferentiation\ngenes that\nincrease most\nprior to P0",
+                   "\n\n\nStep 7:\nSeperate\nby fold change",
+                   "Final groups")
+
+fc_cat_labeller <- function(var){
+  
+  fc_lab <- str_replace(var, "P14 to P56 ", "")
+  fc_lab <- str_replace(fc_lab, "P0 to P7 ", "")
+  fc_lab <- str_replace(fc_lab, "E15 ", "")
+  return(fc_lab)
+}
+
+
+gene_sankey_p <- long_sce %>%
+ ggplot( aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill =node,
+             #color = node,
+               label = paste0(fc_cat_labeller(node),"\nn=", n))) +
+   
+  #geom_sankey(node.color = 1, flow.alpha = .6, width = 0.25) +
+  geom_sankey( flow.alpha = .6, width = 0.25) +
+   #geom_sankey_label(size = 3, color = "white", space = 0.1)  +
+   geom_sankey_text(size = 4, color = "black")  +
+  theme_sankey(base_size = 16) + 
+   scale_fill_manual(values = sankey_colours) +
+   scale_x_discrete(labels =sankey_x_labs_nl) +
+       xlab(NULL)+
+   theme(legend.position = "none", 
+         axis.text.x = element_text(size = 11, vjust=1.65))
+   
+
+plot(gene_sankey_p)
+  
+table(sce_agg_merged_cc_ann$max_cat, sce_agg_merged_cc_ann$group_1)
+
+
+
+```
+
+
+
+
+```{r}
+sankey_x_labs <- c("Remove genes unexpressed during the time course", "Remove genes that are contaminated from other cell lines", "Remove genes that change less then 2 fold", "Split changing genes based on when they arive at max", "Remove genes based on individual dataset differntial expression adjusted p-val" )
+
+ ggplot(long_sce, aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill =node,
+               label = node)) +
+   
+  geom_sankey(node.color = 1, flow.alpha = .6, width = 0.25) +
+   #geom_sankey_label(size = 3, color = "white", space = 0.1)  +
+   geom_sankey_text(size = 3, color = "black")  +
+  theme_sankey(base_size = 16) + 
+   
+   scale_fill_manual(values = sankey_colours) +
+   scale_x_discrete(labels =sankey_x_labs) +
+    xlab(NULL)+
+   coord_flip() +
+   theme(legend.position = "none", 
+         axis.text.x = element_text(size = 12)) 
+   
+
+
+
+```
+
+
+In the supplement I want to show plots that show each step 
+
+Step 1 hatten max expr by scott max expr 
+
+```{r}
+
+
+```
+```{r, fig.height= 3, fig.width=3}
+
+expr_p <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(!(is.na(Scott_max_expr_counts) | is.na(Hatten_max_expr_counts))) %>%
+   dplyr::mutate(expr = ifelse(expr, "Expressed", "Unexpressed")) %>%
+ggplot( aes(x = Scott_max_expr_counts, y = Hatten_max_expr_counts, fill = as.factor(expr), colour = as.factor(expr))) + 
+  geom_point(size = 0.2, alpha = 0.5)  + 
+   scale_fill_manual(values = sankey_colours) +
+  scale_colour_manual(values = sankey_colours) +
+   theme_classic() +
+  theme(legend.position = "none") + 
+  xlab("Maximum expression RNAseq timecourse, normalized") + 
+  ylab("Maximum expression NeuroD1-TRAP, normalized")
+  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+expr_p <- ggExtra::ggMarginal(expr_p  , 
+                         type = "histogram",
+                         bins = 40
+                            )
+
+
+#p <- p +
+#  theme(plot.background = element_rect(fill = "white"))
+
+plot(expr_p)
+
+
+```
+
+```{r}
+ggplot(toc_t50, aes(x = Scott_max_expr_counts, y = Hatten_max_expr_counts, colour = as.factor(expr))) + 
+  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+```
+
+
+
+Step 3 
+To be marked as changed it must pass a fold change cuttoff 
+
+```{r}
+
+
+```
+
+
+
+
+
+Code to transform the axis to best use the plot space 
+
+https://stackoverflow.com/questions/35511951/r-ggplot2-collapse-or-remove-segment-of-y-axis-from-scatter-plot
+
+```{r}
+library(scales)
+squish_trans <- function(from, to, factor) {
+  
+  trans <- function(x) {
+    
+    if (any(is.na(x))) return(x)
+
+    # get indices for the relevant regions
+    isq <- x > from & x < to
+    ito <- x >= to
+    
+    # apply transformation
+    x[isq] <- from + (x[isq] - from)/factor
+    x[ito] <- from + (to - from)/factor + (x[ito] - to)
+    
+    return(x)
+  }
+
+  inv <- function(x) {
+    
+    if (any(is.na(x))) return(x)
+
+    # get indices for the relevant regions
+    isq <- x > from & x < from + (to - from)/factor
+    ito <- x >= from + (to - from)/factor
+    
+    # apply transformation
+    x[isq] <- from + (x[isq] - from) * factor
+    x[ito] <- to + (x[ito] - (from + (to - from)/factor))
+    
+    return(x)
+  }
+  
+  # return the transformation
+  return(trans_new("squished", trans, inv))
+}
+
+```
+
+
+
+```{r}
+
+library(ggbreak)
+
+pheatmap(table(toc_t50_expr$avg_min, toc_t50_expr$avg_max), cluster_rows = FALSE, cluster_cols = FALSE, labels_row = names(time_points), labels_col = names(time_points))
+
+time_dict_reverse <- setNames(names(time_points), time_points)
+
+
+gene_min_max_p <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(!is.na(expr )) %>% 
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+  ggplot(aes(x = avg_max, y = avg_min, colour = max_cat, fill = max_cat, size = avg_fc)) +   
+  geom_jitter(width=2, height=2, alpha = 0.5) +
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time maximum transcript", 
+                     expand = c(0, 0), 
+                    trans = squish_trans(30, 60, 8))  +
+  scale_y_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time minimum transcript", 
+                     expand = c(0, 0), 
+                     trans = squish_trans(30, 60, 8)) + 
+   scale_size(range = c(0.1, 3))
+
+plot(gene_min_max_p)
+
+```
+
+```{r}
+
+
+
+```
+
+
+Cluster the dynamically expressed genes
+
+
+
+## K-means clustering with diff1
+
+
+```{r diff1, fig.height= 6, fig.width= 6}
+library(DescTools)
+library(pheatmap)
+diff1_scott <- t(diff(t(as.matrix(log2_norm_avg_list[[1]])), lag = 1))
+colnames(diff1_scott) <- str_c("Scott_", colnames(diff1_scott))
+diff1_hatten <- t(diff(t(as.matrix(log2_norm_avg_list[[2]])), lag = 1))
+colnames(diff1_hatten) <- str_c("Hatten_", colnames(diff1_hatten))
+
+diff1_all <- cbind(diff1_scott, diff1_hatten)
+
+```
+
+```{r 2fc_kmeans}
+
+ens_tx_dyn_exp <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::select(ensembl_transcript_id)
+
+diff1_all_dyn <- diff1_all[row.names(diff1_all) %in% ens_tx_dyn_exp$ensembl_transcript_id,]
+
+km_diff1 <- kmeans(diff1_all_dyn, centers = 15,  nstart=50,iter.max = 15) 
+
+
+
+km_diff1_df <- data.frame(ensembl_transcript_id = names(km_diff1$cluster), dyn_k15 = km_diff1$cluster)
+
+sce_agg_merged_cc_ann_k <- sce_agg_merged_cc_ann %>%
+  dplyr::left_join(km_diff1_df, by = c('ensembl_transcript_id'='ensembl_transcript_id')) %>%
+  dplyr::mutate(dyn_k15 = factor(dyn_k15))
+
+# reorder using the max and t50 vvalues 
+dyn_k15_summary <- sce_agg_merged_cc_ann_k %>% 
+  dplyr::filter(!is.na(dyn_k15)) %>%
+  dplyr::group_by(dyn_k15) %>%
+  dplyr::summarise(avg_t50 = mean(avg_t50), 
+                   avg_fc =  mean(avg_fc), 
+                   avg_max = mean(avg_max), 
+                   avg_min = mean(avg_min)) %>%
+  dplyr::arrange(desc(avg_max), avg_min, desc(avg_fc), desc(avg_t50)) %>%
+  dplyr::mutate(dyn_k15o = 1:15) 
+
+dyn_k15_recode <- dyn_k15_summary %>%
+  dplyr::select(dyn_k15, dyn_k15o) %>%
+  dplyr::mutate(dyn_k15o = factor(dyn_k15o))
+
+sce_agg_merged_cc_ann_k$dyn_k15 <- plyr::mapvalues(sce_agg_merged_cc_ann_k$dyn_k15, from = dyn_k15_recode$dyn_k15, to = dyn_k15_recode$dyn_k15o )
+
+
+
+
+sce_agg_merged_cc_ann_k$dyn_k15 <- factor(sce_agg_merged_cc_ann_k$dyn_k15, levels = c(1:15))
+```
+
+check the optimal number of clusters for log2FC = 1 
+code from: 
+https://www.r-bloggers.com/finding-optimal-number-of-clusters/
+author: https://www.r-bloggers.com/author/sunny-anand/
+```{r, eval = FALSE}
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 30
+data <- diff1_all_dyn
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data, k, nstart=20,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+
+
+
+```
+
+```{r}
+
+ sce_agg_merged_cc_ann_k %>%
+  dplyr::filter(!is.na(dyn_k15)) %>%
+    dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+ggplot( aes(x = Winsorize(avg_t50, maxval = 30), y = Winsorize(avg_fc, maxval = 8), group = dyn_k15)) +
+  geom_point(aes(shape=dyn_k15, color=dyn_k15),size = 1) + 
+  facet_wrap(~max_cat) +
+  scale_shape_manual(values=1:nlevels(sce_agg_merged_cc_ann_k$dyn_k15)) +   
+  scale_x_continuous(breaks = time_points, labels = names(time_points), name = "Time at 50% max change") + 
+  ylab("log2 fold change")
+
+
+sce_agg_merged_cc_ann_k %>%
+  dplyr::filter(!is.na(expr)) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+  ggplot(aes(x = avg_max, y = avg_min, colour = dyn_k15, fill = dyn_k15, size = avg_fc)) +   
+  geom_jitter(width=2, height=2, alpha = 0.5) +
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time maximum transcript", 
+                     expand = c(0, 0), 
+                    trans = squish_trans(30, 60, 8))  +
+  scale_y_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time minimum transcript", 
+                     expand = c(0, 0), 
+                     trans = squish_trans(30, 60, 8)) + 
+   scale_size(range = c(0.1, 3))
+```
+
+```{r, fig.width= 6, fig.height = 6, eval=FALSE}
+dyn_km_diff <- sce_agg_merged_cc_ann_k %>%
+   dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(!is.na(dyn_k15)) %>%
+  dplyr::select(dyn_k15,ensembl_transcript_id) %>%
+  dplyr::rename(cluster_id = dyn_k15 , gene = ensembl_transcript_id )
+
+dyn_km_diff_v <- dyn_km_diff$cluster_id
+names(dyn_km_diff_v) <- dyn_km_diff$gene
+
+plot_group_timeline(log2_norm_list_shift, meta_list, dyn_km_diff_v, p_time = pseudo_time, ylimits = c(-3,3))
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+
+sce_agg_merged_cc_ann_k %>%
+  filter(!is.na(dyn_k15)) %>%
+  ggplot(aes(avg_max, dyn_k15)) + geom_jitter(size = 0.3)
+
+
+
+
+```
+
+
+```{r, fig.height= 6, fig.width= 6}
+sce_agg_merged_cc_ann_k %>%
+  dplyr::filter(!is.na(expr)) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+  ggplot(aes(x = avg_max, y = avg_min, colour = dyn_k15, fill = dyn_k15, size = avg_fc)) +   
+  geom_jitter(width=2, height=2, alpha = 0.5) +
+  facet_wrap(~dyn_k15) +
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time maximum transcript", 
+                     expand = c(0, 0), 
+                    trans = squish_trans(30, 60, 8))  +
+  scale_y_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time minimum transcript", 
+                     expand = c(0, 0), 
+                     trans = squish_trans(30, 60, 8)) + 
+   scale_size(range = c(0.1, 3))
+
+
+```
+
+
+
+
+```{r, fig.height= 6, fig.width= 6}
+table(sce_agg_merged_cc_ann_k$dyn_k15)
+
+
+dyn_k15_comp <- sce_agg_merged_cc_ann_k$dyn_k15
+names(dyn_k15_comp) <- sce_agg_merged_cc_ann_k$ensembl_transcript_id
+dyn_k15_comp <- dyn_k15_comp[!is.na(dyn_k15_comp)]
+dyn_k15_comp <- factor(dyn_k15_comp, levels = c(1:length(levels(dyn_k15_comp))))
+
+plot_group_timeline(log2_norm_list_shift, meta_list, dyn_k15_comp, p_time = pseudo_time, ylimits = c(-2,2))
+
+
+```
+
+
+
+
+```{r, eval = FALSE}
+
+
+sce_agg_merged_cc_ann_k <-  sce_agg_merged_cc_ann_k %>% 
+  mutate(max_min_group =  case_when(
+      H3K27me3_bin == 1 &  max_t50_cat %in% c("Max_P14_P56 t50_Late", "Max_P14_P56 t50_Mid")  ~ "Diff_H3K27me3",
+      H3K27me3_bin != 1 &  max_t50_cat %in% c("Max_P14_P56 t50_Late", "Max_P14_P56 t50_Mid")  ~ "Diff_not_H3K27me3",
+      H3K27me3_bin== 1 &  max_t50_cat == "Max_P14_P56 t50_Early"                             ~ "Diff_Early_H3K27me3",
+      H3K27me3_bin == 1 &  max_t50_cat %in% c("Max_E15 t50_Early", "Max_E15 t50_Late", 
+                                                "Max_E15 t50_Mid")                              ~ "E15_H3K27me3",
+      H3K27me3_bin == 1 &  max_t50_cat %in% c("Max_P0_7 t50_Early", "Max_P0_7 t50_Late", 
+                                                "Max_P0_7 t50_Mid")                              ~ "P7_H3K27me3",
+      H3K27me3_bin == 1                                                                       ~ "H3K27me3",  
+      TRUE                                                                                      ~ "other"
+    )
+)
+
+
+```
+
+
+
+
+```{r}
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(expr == TRUE) %>%
+  dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+  dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+  dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = exclude_cat, fill = exclude_cat)) +
+ geom_point(size = .5, alpha =1 ) + 
+    facet_wrap(~exclude_cat) +
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(gn_max_logn, minval = 0, maxval = 3), 
+                      y = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() +
+    
+  
+  theme(legend.position = "none")
+
+```
+
+
+
+```{r, fig.height = 3, fig.width=6}
+
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(expr == TRUE) %>%
+  dplyr::filter(!(exclude_cat == "Cell_cycle")) %>%
+  dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+  dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+  dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = exclude_cat, fill = exclude_cat)) +
+ geom_point(size = .5, alpha =1 ) + 
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(gn_max_logn, minval = 0, maxval = 3), 
+                      y = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() 
+    
+  
+ # theme(legend.position = "none")
+
+
+```
+
+```{r, fig.height = 3, fig.width=6}
+
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(expr == TRUE) %>%
+  dplyr::filter(!(exclude_cat == "Cell_cycle")) %>%
+    dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+  dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+  dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = exclude_cat, fill = exclude_cat)) +
+ geom_point(size = .5, alpha =0.5 ) + 
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(gn_max_logn, minval = 0, maxval = 3), 
+                      y = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() 
+    
+  
+ # theme(legend.position = "none")
+
+
+```
+
+Colour label only the kept genes
+
+```{r}
+
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(expr == TRUE) %>%
+  dplyr::filter(!(exclude_cat == "Cell_cycle")) %>%
+    dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+  dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+  dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = exclude_cat, fill = exclude_cat)) +
+ geom_point(size = .5, alpha =0.5 ) + 
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(gn_max_logn, minval = 0, maxval = 3), 
+                      y = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() 
+    
+  
+```
+
+For scRNAseq plot, there are too many points, show only the points that are being removed and the major final groups 
+
+combine the plots into a simple grid 
+
+```{r}
+
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(expr == TRUE) %>%
+  dplyr::filter(!(exclude_cat == "Cell_cycle")) %>%
+    dplyr::filter(! (max_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+  dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = exclude_cat, fill = exclude_cat)) +
+ geom_point(size = .5, alpha =0.5 ) + 
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(gn_max_logn, minval = 0, maxval = 3), 
+                      y = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() 
+    
+  
+```
+]
+
+```{r, fig.height= 12, fig.width = 8}
+library(gridExtra)
+
+# Create a grid with plot1 occupying the top 2 spots
+grid <- arrangeGrob(gene_sankey_p, expr_p, expr_p, gene_min_max_p, expr_p,
+                    layout_matrix = rbind(c(1, 1), c(2, 3), c(4, 5)),
+                    heights = c(1, 1, 1), widths = c(1, 1))
+
+# Display the grid
+grid.arrange(grid)
+
+
+```
+
+
+combine the plots to surround the sankey plot.
+
+```{r, fig.width=12, fig.height=8}
+
+
+```
+
+
+
+Example timeline plots
+
+
+```{r, fig.height= 1.5, fig.width= 3}
+
+histone_k_toc_t50_k27me3 %>%
+  dplyr::filter(max_cat == "E15") %>%
+  dplyr::filter(avg_fc > 4) %>%
+  dplyr::select(mgi_symbol, avg_fc, avg_t50)
+  
+
+high_E15 <- c("Meis2", "Cdkn1c", "Slit1", "Pou4f2", "Lhx9")
+
+genesofinterest <- high_E15
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+
+
+plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-3,3))
+
+
+
+high_E15 <- c("Meis2", "Lhx9")
+
+genesofinterest <- high_E15
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-4,4), include_n = FALSE)
+p
+
+
+high_P7 <- c("Gli1", "Ccnd1")
+
+genesofinterest <-  c("Gli1", "Ccnd1", "Ccnd2")
+
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-4,4), include_n = FALSE)
+p
+
+```
+
+```{r, fig.width= 1.5, fig.height= 4.5}
+high_P14 <- c("Unc5b", "Ablim1", "St8sia5")
+
+genesofinterest <-  high_P14
+
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+genesofinterest$gene <- factor(genesofinterest$gene, levels = high_P14)  
+genesofinterest$cluster_id <- factor(genesofinterest$cluster_id, levels = high_P14)  
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+```
+
+```{r, fig.width= 6, fig.height= 1.5}
+high_P14 <- c("Unc5b", "Phyhip", "St8sia5", "Wnt7a")
+
+genesofinterest <-  high_P14
+
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+genesofinterest$gene <- factor(genesofinterest$gene, levels = high_P14)  
+genesofinterest$cluster_id <- factor(genesofinterest$cluster_id, levels = high_P14)  
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 4)
+p
+
+
+```
+
+
+```{r, fig.width= 3, fig.height= 3}
+genesofinterest <- c("Cbx7")
+
+
+genesofinterest_df <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(mgi_symbol %in% genesofinterest ) %>%
+  dplyr::select(ensembl_transcript_id, mgi_symbol) %>%
+  dplyr::rename(gene = ensembl_transcript_id, cluster_id = mgi_symbol)
+
+t50_df <- sce_agg_merged_cc_ann %>%
+  dplyr::select(ensembl_transcript_id, avg_t50)
+
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+
+
+```
+
+
+
+```{r, fig.width= 3, fig.height= 3}
+genesofinterest <- c("Fer")
+
+
+genesofinterest_df <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(mgi_symbol %in% genesofinterest ) %>%
+  dplyr::select(ensembl_transcript_id, mgi_symbol) %>%
+  dplyr::rename(gene = ensembl_transcript_id, cluster_id = mgi_symbol)
+
+t50_df <- sce_agg_merged_cc_ann %>%
+  dplyr::select(ensembl_transcript_id, avg_t50)
+
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+
+
+```
+
+```{r, fig.width= 5, fig.height= 7.5}
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-2,2), include_n = FALSE, col_num = 2, text_size = 26,  ribbon = TRUE, x_label = "drop", add_t50 = t50_df, time_ref = time_ref)
+p +   theme(legend.position = c(0.4, 0.9), 
+        legend.direction = "vertical", 
+        text = element_text(size = 26),
+        legend.title=element_blank(), 
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank()) + 
+  guides(size=guide_legend(ncol=1,byrow=TRUE))
+
+
+```
+
+
+
+```{r, fig.width= 3, fig.height= 3}
+genesofinterest <- c("Ablim1")
+
+
+genesofinterest_df <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(mgi_symbol %in% genesofinterest ) %>%
+  dplyr::select(ensembl_transcript_id, mgi_symbol) %>%
+  dplyr::rename(gene = ensembl_transcript_id, cluster_id = mgi_symbol)
+
+t50_df <- sce_agg_merged_cc_ann %>%
+  dplyr::select(ensembl_transcript_id, avg_t50)
+
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+
+
+```
+
+```{r, fig.width= 5, fig.height= 7.5}
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-2,2), include_n = FALSE, col_num = 2, text_size = 26,  ribbon = TRUE, x_label = "drop", add_t50 = t50_df, time_ref = time_ref)
+p +   theme(legend.position = c(0.4, 0.9), 
+        legend.direction = "vertical", 
+        text = element_text(size = 26),
+        legend.title=element_blank(), 
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank()) + 
+  guides(size=guide_legend(ncol=1,byrow=TRUE))
+
+
+```
+
+
+
+```{r, fig.width= 3, fig.height= 3}
+genesofinterest <- c("Gli1")
+
+
+genesofinterest_df <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(mgi_symbol %in% genesofinterest ) %>%
+  dplyr::select(ensembl_transcript_id, mgi_symbol) %>%
+  dplyr::rename(gene = ensembl_transcript_id, cluster_id = mgi_symbol)
+
+t50_df <- sce_agg_merged_cc_ann %>%
+  dplyr::select(ensembl_transcript_id, avg_t50)
+
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+
+
+```
+
+```{r, fig.width= 5, fig.height= 7.5}
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-2,2), include_n = FALSE, col_num = 2, text_size = 26,  ribbon = TRUE, x_label = "drop", add_t50 = t50_df, time_ref = time_ref)
+p +   theme(legend.position = c(0.7, 0.3), 
+        legend.direction = "vertical", 
+        text = element_text(size = 26),
+        legend.title=element_blank(), 
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank()) + 
+  guides(size=guide_legend(ncol=1,byrow=TRUE))
+
+
+```
+
+```{r, fig.width= 3, fig.height= 3}
+genesofinterest <- c("Lhx9")
+
+
+genesofinterest_df <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(mgi_symbol %in% genesofinterest ) %>%
+  dplyr::select(ensembl_transcript_id, mgi_symbol) %>%
+  dplyr::rename(gene = ensembl_transcript_id, cluster_id = mgi_symbol)
+
+t50_df <- sce_agg_merged_cc_ann %>%
+  dplyr::select(ensembl_transcript_id, avg_t50)
+
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+
+
+```
+
+```{r, fig.width= 5, fig.height= 7.5}
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest_df, p_time = pseudo_time, ylimits = c(-4,3), include_n = FALSE, col_num = 2, text_size = 26,  ribbon = TRUE, x_label = "drop", add_t50 = t50_df, time_ref = time_ref)
+p +   theme(legend.position = c(0.7, 0.7), 
+        legend.direction = "vertical", 
+        text = element_text(size = 26),
+        legend.title=element_blank(), 
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank()) + 
+  guides(size=guide_legend(ncol=1,byrow=TRUE))
+
+
+```
+
+
+```{r, fig.height= 4, fig.width=4}
+high_P14 <- c("Ablim1","Cbx7")
+
+genesofinterest <-  high_P14
+
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+genesofinterest$gene <- factor(genesofinterest$gene, levels = high_P14)  
+genesofinterest$cluster_id <- factor(genesofinterest$cluster_id, levels = high_P14)  
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-2,2), include_n = FALSE, col_num = 2, text_size = 26,  ribbon = FALSE, x_label = "drop", add_t50 = t50_df, time_ref = time_ref)
+p +   theme(legend.position = c(0.2, 0.1), 
+        legend.direction = "vertical", 
+        text = element_text(size = 26),
+        legend.title=element_blank(), 
+        panel.background=element_blank(),
+        panel.border=element_blank(),
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        plot.background=element_blank()) + 
+  guides(size=guide_legend(ncol=1,byrow=TRUE))
+
+
+
+
+```
+
+```{r, fig.width= 1.5, fig.height= 2.5}
+p
+
+
+```
+
+```{r, fig.width= 1.5, fig.height= 1.5}
+high_P14 <- c("St8sia5")
+
+genesofinterest <-  high_P14
+
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+genesofinterest$gene <- factor(genesofinterest$gene, levels = high_P14)  
+genesofinterest$cluster_id <- factor(genesofinterest$cluster_id, levels = high_P14)  
+
+
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-3,3), include_n = FALSE, col_num = 1)
+p
+
+
+
+
+```
+
+
+```{r}
+
+
+
+
+```
+

@@ -134,6 +134,7 @@ A gene with no transcript in the aligned matrices is reported under
 | `max_category` | time-of-peak bin: `E15` (peaks embryonic), `P0_7` (peaks early postnatal), `P14_P56` (peaks late), or `unchanged` / `unexpressed` |
 | `t50_category` | `Early` (t50 < 6 → switches by ~E20/P0), `Mid` (6–18 → ~P0–P12), `Late` (>18 → after ~P12) |
 | `kinetic_class` | combined `Max_<maxcat> t50_<t50cat>` label — the primary grouping used in figures |
+| `gene_program` | developmental program by time of peak (Purzner et al. 2025): `embryonic` (peak E15), `proliferation` (peak P0–P7; e.g. Gli1, Ccnd1), `differentiation` (peak P14–P56; e.g. Cacna1a, Cbx7), else `unchanged`/`unexpressed`. For the paper's strict gene sets (783/440/787) also require `fc_class == ">2 log2FC"`. |
 | `fc_class` | `0-1 log2FC` / `1-2 log2FC` / `>2 log2FC` |
 | `expressed` | TRUE if called expressed in either dataset (binarized max expression) |
 | `max_expr_scott`, `max_expr_hatten` | max expression level (length-normalized counts / array intensity) |
@@ -166,6 +167,17 @@ Standard outputs in `figures/`:
 - `example_genes_timeline.pdf` — illustrative marker genes.
 - `t50_vs_log2fc.pdf` — t50 vs signed fold change by time-of-max category.
 
+Gene-classification Sankey (Figure S1 of Purzner et al. 2025), the stepwise
+filter that defines the three gene programs — reproduces the published set
+sizes (783 embryonic / 440 proliferation / 787 differentiation):
+
+```bash
+Rscript R/figures/sankey_classification.R   # -> figures/sankey_gene_classification.{pdf,png}
+```
+
+Needs `ggsankey` (`devtools::install_github("davidsjoberg/ggsankey")`) and
+`data/gene_classification.tsv`. The verbatim source Rmds are in `analysis/`.
+
 ## Provenance & reproducibility
 
 - Canonical merged table: `data/toc_t50_2023_05_17.txt` (115 columns; the slim
@@ -185,4 +197,10 @@ Standard outputs in `figures/`:
   was left `eval=FALSE`; the rebuild uses a stable normal-mixture / density
   fallback), which only reclassifies borderline genes near the
   expressed/unchanged boundary.
-- Ported from `GNP_MB_integrate/Ezh2_2022/1_transcript_timecourse_3.Rmd`.
+- Ported from `GNP_MB_integrate/Ezh2_2022/1_transcript_timecourse_3.Rmd`
+  (also copied verbatim into `analysis/`).
+- This dataset underlies **Purzner et al. 2025**, *Ezh2 Delays Activation of
+  Differentiation Genes During Normal Cerebellar Granule Neuron Development and
+  in Medulloblastoma*, eLife (DOI 10.7554/eLife.105339.1; bioRxiv
+  2024.11.21.624171). See `references/` for the PDF, citation, and how
+  `gene_program` maps to the paper's gene sets.

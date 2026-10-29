@@ -1,0 +1,923 @@
+---
+title: "t50window_to_gene"
+author: "James Purzner"
+date: "6/5/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Get gene groups based upon the t50 values 
+
+pull windows of genes with the same number of genesm centered upon a t50 
+
+return a list of vectors 
+
+
+load libraries
+```{r}
+library(dplyr)
+library(GO.db)
+library(DescTools)
+library(ggplot2)
+library(ggrepel)
+require(stringr)
+require(GO.db)
+require(org.Mm.eg.db)
+library(GOSemSim)
+library(pheatmap)
+library(ggpubr)
+```
+
+
+laod data
+```{r}
+histone_k_toc_t50_k27me3 <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histone_tnse_toc_t50_k27me3.txt", 
+            sep = "\t", header = TRUE, row.names = 1)
+
+```
+
+
+```{r}
+diff_genes <- histone_k_toc_t50_k27me3 %>%
+    dplyr::filter(max_cat == "P14_P56") 
+
+```
+
+
+
+```{r}
+
+exp_levels <- levels(gene_t50_time$max_cat)[levels(gene_t50_time$max_cat) != "unexpressed"]
+
+gene_t50_time_2fc  <- histone_k_toc_t50_k27me3 %>%
+  dplyr::filter(max_cat != "unexpressed") %>%
+  dplyr::mutate(max_cat = ifelse(avg_fc >= 2, as.character(max_cat), "unchanged" )) %>%
+  dplyr::select("mgi_symbol", "avg_t50", "max_cat", "avg_fc", "max_t50_avgfc_cat") %>%
+  dplyr::mutate(max_t50_avgfc_cat = ifelse(max_cat == "unchanged", "unchanged",  as.character(max_t50_avgfc_cat))) %>%
+  dplyr::mutate(max_t50_avgfc_cat = as.factor(max_t50_avgfc_cat)) %>%
+  droplevels() 
+
+ 
+gene_t50_time  <- histone_k_toc_t50_k27me3 %>%
+  dplyr::filter(max_cat != "unexpressed") %>%
+  #dplyr::mutate(max_cat = as.factor(max_cat, levels = exp_levels)) %>%
+  dplyr::select("mgi_symbol", "avg_t50", "max_cat", "avg_fc") %>%
+  droplevels() 
+
+table(gene_t50_time$max_cat)
+table(gene_t50_time_2fc$max_cat)
+
+```
+
+
+
+```{r}
+
+source('~/Dropbox/jp_seq/topGO_split.R')
+gnp_multi_split <- histone_k_toc_t50%>%
+  dplyr::filter(max_cat != "unexpressed") %>%
+  dplyr::select("mgi_symbol", "avg_t50", "max_cat", "avg_fc", "max_t50_avgfc_cat") %>%
+  dplyr::mutate(max_t50_avgfc_cat = ifelse(max_cat == "unchanged", "unchanged",  as.character(max_t50_avgfc_cat))) %>%
+  dplyr::mutate(max_t50_avgfc_cat = as.factor(max_t50_avgfc_cat)) %>%
+  droplevels() 
+
+go_multi_split <- topGO_split(gnp_multi_split, all_genes_exp, "max_t50_avgfc_cat", ont = "MF" )
+
+```
+
+Get the genes and summarize features like t50 and avg FC
+
+```{r}
+
+  
+#ls("package:org.Mm.eg.db")
+# get GO term to gene list
+cols <- c("GO", "SYMBOL")
+keys <- keys(org.Mm.eg.db)
+go_df <- AnnotationDbi::select(org.Mm.eg.db, keys, cols, keytype="ENTREZID")
+go_df$EVIDENCE <- NULL
+
+go_df <- go_df[!duplicated(go_df),]
+
+# check GO genes against max cat 
+
+# how many genes are missing in the symbol data 
+table(gene_t50_time$mgi_symbol %in% go_df$SYMBOL, gene_t50_time$max_cat) 
+# good enough 
+
+gene_t50_time_GO <- merge(x = go_df, y = gene_t50_time, by.x = "SYMBOL", by.y = "mgi_symbol", all = FALSE)
+
+GO_t50_summary <- gene_t50_time_GO %>% 
+  dplyr::group_by(max_cat, GO, ONTOLOGY) %>%
+  dplyr::arrange(avg_t50) %>%
+  dplyr::mutate(t50_rank=row_number()) %>%
+  dplyr::summarise(t50_mean = mean(avg_t50),
+                   t50_sd = sd(avg_t50),
+                   t50_rank_sd = sd(t50_rank),
+                   t50_rank_mean = mean(t50_rank),
+                  avg_FC_mean = mean(avg_fc), 
+                  avg_FC_sd = sd(avg_fc), 
+                  gene_num = length(SYMBOL))
+
+GO_t50_all_cat <- gene_t50_time_GO %>% 
+  dplyr::group_by( GO, ONTOLOGY) %>%
+  dplyr::summarise(all_num = length(SYMBOL))
+
+# calculate enrichment
+GO_t50_summary <- merge(x = GO_t50_summary, y = GO_t50_all_cat, by.x = c("GO", "ONTOLOGY"), by.y = c("GO", "ONTOLOGY")) 
+GO_t50_summary$gene_freq <-  GO_t50_summary$gene_num / GO_t50_summary$all_num
+
+plot(log10(GO_t50_summary$gene_num),GO_t50_summary$gene_freq)
+
+
+GO_t50_summary_prune <- GO_t50_summary %>% 
+  dplyr::filter(gene_num > 20) %>%
+  dplyr::filter(gene_freq > 0.3) 
+
+plot(GO_t50_summary_prune$t50_sd ,GO_t50_summary_prune$gene_freq)
+
+
+GO_t50_summary_prune_top <- GO_t50_summary_prune %>% 
+  dplyr::group_by(max_cat, ONTOLOGY) %>%
+  dplyr::arrange(t50_rank_sd, desc(gene_freq)) %>%
+  dplyr::top_n(10)
+
+#GO_t50_summary_prune_top %>%
+  
+gene_t50_time_GO_prune <- left_join(GO_t50_summary_prune_top[,c("GO", "ONTOLOGY", "max_cat")], gene_t50_time_GO, by = c("GO", "ONTOLOGY", "max_cat"))
+
+
+```
+
+
+```{r, fig.height= 6, fig.height= 6}
+
+gene_t50_time_GO_prune$go_desc <-  as.vector(Term(gene_t50_time_GO_prune$GO))
+
+jitter <- position_jitter(width = 0, height = 0.2)
+
+gene_t50_time_GO_prune %>%
+  dplyr::filter(ONTOLOGY == "MF") %>%
+  dplyr::mutate(avg_t50 =  Winsorize(avg_t50, maxval = 30)) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  ggplot( aes(y = go_desc, x = avg_t50, size = avg_fc)) + 
+  geom_point(alpha = 0.4, position = jitter) + 
+  theme_gray() +
+  facet_wrap(~max_cat, scales = "free")
+
+gene_t50_time_GO_prune %>%
+  dplyr::filter(ONTOLOGY == "MF") %>%
+  dplyr::mutate(avg_t50 =  Winsorize(avg_t50, maxval = 30)) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  ggplot( aes(x = go_desc, y = avg_t50, size = avg_fc)) + 
+  geom_violin() + 
+  theme_gray() +
+  coord_flip() + 
+  facet_wrap(~max_cat, scales = "free")
+
+
+
+
+# for each max cat, calculate avg_t50, range, variance etc.., 
+
+
+
+
+```
+
+
+
+```{r}
+
+mmGO <- godata('org.Mm.eg.db', ont="MF")
+#goSim("GO:0000045", "GO:0000049", semData=mmGO, measure="Wang")
+
+go_sim <- function(x,y) {goSim(x, y, semData=mmGO, measure="Wang")}
+
+GO_t50_summary_prune_MF <- GO_t50_summary_prune %>% 
+  dplyr::filter(ONTOLOGY == "MF") 
+
+```
+
+
+```{r}
+#tt <- outer(X = head(GO_t50_summary_prune_MF$GO,100), Y = head(GO_t50_summary_prune_MF$GO, 100), FUN =  Vectorize(go_sim))
+GO_sim_mat <- outer(X = GO_t50_summary_prune_MF$GO, Y = GO_t50_summary_prune_MF$GO, FUN =  Vectorize(go_sim))
+#pheatmap(GO_sim_mat)
+
+GO_sim_mat_max <- apply(GO_sim_mat, 1, function(x) {
+            n <- length(x)
+            return(sort(x,partial=n-1)[n-1])
+      })
+
+table(GO_sim_mat_max > 0.9)
+
+
+```
+
+Increasing with differentiation 
+
+```{r, fig.height= 6, fig.height= 6}
+
+GO_t50_summary_prune_diff_top <-  GO_t50_summary_prune %>% 
+  dplyr::filter(max_cat == "P14_P56") %>%
+  dplyr::filter(ONTOLOGY == "MF") %>%
+  dplyr::filter(t50_mean > 15) %>%
+  dplyr::arrange(t50_rank_sd, desc(gene_freq)) %>%
+  dplyr::top_n(10) 
+  
+  
+  
+gene_t50_time_GO_diff_top <- left_join(GO_t50_summary_prune_diff_top[,c("GO", "ONTOLOGY", "max_cat")], gene_t50_time_GO, by = c("GO", "ONTOLOGY", "max_cat"))
+
+gene_t50_time_GO_diff_top$go_desc <-  as.vector(Term(gene_t50_time_GO_diff_top$GO))
+
+gene_t50_time_GO_diff_top %>%
+  dplyr::mutate(avg_t50 =  Winsorize(avg_t50, maxval = 30)) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  ggplot( aes(y = go_desc, x = avg_t50, size = avg_fc)) + 
+  geom_point(alpha = 0.4, position = jitter) + 
+  theme_gray() #+
+  #facet_wrap(~max_cat, scales = "free")
+
+```
+
+
+merge similar GO terms 
+
+```{r}
+
+GO_t50_summary_diff <- GO_t50_summary_prune %>% 
+  dplyr::filter(max_cat == "P14_P56") %>%
+  dplyr::filter(ONTOLOGY == "MF")
+
+# assocaited GO terms for a single GO term 
+hist(GO_sim_mat[match( GO_t50_summary_diff$GO[1], GO_t50_summary_prune_MF$GO),],breaks = 100)
+
+# all GO terms 
+GO_sim_mat_diff <- GO_sim_mat[match( GO_t50_summary_diff$GO, GO_t50_summary_prune_MF$GO),match( GO_t50_summary_diff$GO, GO_t50_summary_prune_MF$GO)]
+
+# seems like 0.6 reasonable cutoff 
+pheatmap(GO_sim_mat_diff)
+
+```
+
+Order list as above 
+Loop 
+  find associated terms and group with variable 
+  loop to next unassociated term 
+  up to 10 
+
+```{r}
+
+GO_t50_summary_diff_ord <-  GO_t50_summary_diff %>%
+  dplyr::filter(t50_mean > 12) %>%
+  dplyr::arrange(desc(gene_freq)) 
+  
+GO_t50_summary_diff_ord$GO_cluster <- 0
+
+for (i in 1:nrow(GO_t50_summary_diff_ord)) {
+  curr_go <- GO_t50_summary_diff_ord$GO[i]
+  assoc_go <- GO_t50_summary_prune_MF$GO[GO_sim_mat[match(curr_go,  GO_t50_summary_prune_MF$GO),] > 0.5 ]
+  #print(assoc_go)
+  assoc_idx <- which(GO_t50_summary_diff_ord$GO %in% assoc_go)
+  #print(assoc_idx)
+  for (j in assoc_idx) {
+      GO_t50_summary_diff_ord$GO_cluster[j] <-  ifelse (GO_t50_summary_diff_ord$GO_cluster[j] == 0, 
+                                                           i, GO_t50_summary_diff_ord$GO_cluster[j])
+  
+  }
+} 
+
+
+
+```
+
+```{r, fig.width= 4, fig.height= 8 }
+GO_t50_summary_diff_ord_top <- GO_t50_summary_diff_ord %>%
+  
+  dplyr::arrange(GO_cluster) %>%
+  
+  dplyr::filter(GO_cluster < 20)
+
+
+gene_t50_time_GO_diff_ord_top <- left_join(GO_t50_summary_diff_ord_top, gene_t50_time_GO, by = c("GO", "ONTOLOGY", "max_cat"))
+
+gene_t50_time_GO_diff_ord_top$go_desc <-  as.vector(Term(gene_t50_time_GO_diff_ord_top$GO))
+
+gene_t50_time_GO_diff_ord_top <- gene_t50_time_GO_diff_ord_top %>%
+  dplyr::distinct(SYMBOL,GO_cluster, .keep_all = TRUE)
+
+jitter <- position_jitter(width = 0, height = 0.2)
+
+gene_t50_time_GO_diff_ord_top %>%
+  dplyr::filter(avg_fc >= 2) %>%
+  dplyr::mutate(avg_t50 =  as.numeric(Winsorize(avg_t50, maxval = 30))) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  dplyr::mutate(go_desc =  str_wrap(go_desc, width = 25)) %>% 
+  dplyr::mutate(SYMBOL = ifelse(avg_fc >= 4, SYMBOL, "" )) %>%
+  dplyr::mutate(SYMBOL = ifelse(avg_t50 > 10, SYMBOL, "" )) %>%
+  ggplot( aes(y = go_desc, x = avg_t50, size = avg_fc, label = SYMBOL)) + 
+  geom_point(alpha = 0.4, position = jitter) + 
+  geom_text_repel(force = 10, 
+                  size = 5, 
+                  position = jitter) + 
+    scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change") +
+  
+  facet_grid(GO_cluster~., scales = "free_y", shrink = TRUE, space = "free_y") +
+  theme_gray() + 
+  theme(
+    strip.background = element_blank(), 
+    strip.text = element_blank(), 
+    axis.title.x =  element_blank() 
+  )
+
+
+```
+
+
+
+
+```{r, fig.width= 6, fig.height= 8}
+
+gene_t50_time_GO_diff_ord_top %>%
+  dplyr::mutate(avg_t50 =  as.numeric(Winsorize(avg_t50, maxval = 30))) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  dplyr::mutate(SYMBOL = ifelse(avg_fc >= 2, SYMBOL, "" )) %>%
+  dplyr::mutate(SYMBOL = ifelse(avg_t50 > 10, SYMBOL, "" )) %>%
+  
+  ggplot( aes(y = go_desc, x = avg_t50, size = avg_fc, label = SYMBOL)) + 
+  geom_point(alpha = 0.4) + 
+  geom_text_repel(force = 5) + 
+    scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change") +
+  
+  facet_wrap(~GO_cluster, scales = "free_y", ncol = 1) +
+  theme_gray() + 
+  theme(
+    strip.background = element_blank(), 
+    strip.text = element_blank()
+  )
+
+
+```
+
+There isn't a great deal of t50 clustering for many of the GO terms 
+
+Will use TopGo to calculate the enrichment and p-val 
+
+```{r, eval = FALSE}
+go_multi_unique <- unique(go_multi_split$GO.ID)
+GO_sim_mat <- outer(X = go_multi_unique, Y = go_multi_unique, FUN =  Vectorize(go_sim))
+pheatmap(GO_sim_mat)
+colnames(GO_sim_mat) <- go_multi_unique
+row.names(GO_sim_mat) <- go_multi_unique
+write.table(GO_sim_mat, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/GO_sim_mat.txt", sep = "\t", row.names = TRUE, col.names =  TRUE)
+```
+
+```{r}
+GO_sim_mat <- read.table( "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/GO_sim_mat.txt", sep = "\t", row.names = 1, header =  TRUE)
+```
+
+
+
+```{r}
+go_multi_split$enrichment <- go_multi_split$Significant / go_multi_split$Expected
+table(go_multi_split$time_window)
+
+go_multi_split$time_window <- as.factor(go_multi_split$time_window)
+go_multi_split$topgoFisher <- as.numeric(go_multi_split$topgoFisher)
+go_multi_split$elimFisher <- as.numeric(go_multi_split$elimFisher)
+go_multi_split$classicFisher <- as.numeric(go_multi_split$classicFisher)
+
+inc_diff_group <- levels(go_multi_split$time_window)[grep("Max_P14_P56", levels(go_multi_split$time_window))]
+inc_diff_group_2fc <- inc_diff_group[grep(">2",inc_diff_group )]
+```
+
+
+```{r, fig.height= 5, fig.width= 4}
+go_multi_split %>%
+ dplyr::filter(time_window %in% inc_diff_group) %>%
+  dplyr::filter(topgoFisher < 1e-4) %>%
+ggplot( aes(x = enrichment, y = Term, colour = time_window)) + 
+  geom_point() 
+
+go_multi_split %>%
+ dplyr::filter(time_window %in% inc_diff_group) %>%
+  dplyr::filter(elimFisher < 1e-4) %>%
+ggplot( aes(x = enrichment, y = Term, colour = time_window)) + 
+  geom_point() 
+
+go_multi_split %>%
+ dplyr::filter(time_window %in% inc_diff_group) %>%
+  dplyr::filter(classicFisher < 1e-4) %>%
+ggplot( aes(x = enrichment, y = Term, colour = time_window)) + 
+  geom_point() 
+```
+
+just looking at the genes that increase 2fc 
+```{r, fig.height= 5, fig.width= 4}
+go_multi_split %>%
+ dplyr::filter(time_window %in% inc_diff_group_2fc) %>%
+  dplyr::filter(topgoFisher < 1e-4) %>%
+ggplot( aes(x = enrichment, y = Term, colour = time_window)) + 
+  geom_point() 
+
+go_multi_split %>%
+ dplyr::filter(time_window %in% inc_diff_group_2fc) %>%
+  dplyr::filter(elimFisher < 1e-4) %>%
+ggplot( aes(x = enrichment, y = Term, colour = time_window)) + 
+  geom_point() 
+
+go_multi_split %>%
+ dplyr::filter(time_window %in% inc_diff_group_2fc) %>%
+  dplyr::filter(classicFisher < 1e-4) %>%
+ggplot( aes(x = enrichment, y = Term, colour = time_window)) + 
+  geom_point() 
+```
+
+# Get child GO terms associated with topGO 
+
+remove very low gene count and low enriched genes 
+```{r}
+# summarize the GO terms 
+go_max <- go_multi_split  %>%
+  dplyr::group_by(GO.ID) %>%
+  dplyr::summarise(max_gene_num = max(Significant), 
+            max_enrich = max(enrichment), 
+            min_classicFisher = min(classicFisher), 
+            min_topgoFisher = min(topgoFisher), 
+            min_elimFisher = min(elimFisher))
+
+go_exclude <- go_max %>%
+  dplyr::filter(max_gene_num < 6 | max_enrich < 2 | min_elimFisher > 0.01 )
+
+
+
+go_multi_split_filt <- go_multi_split[!(go_multi_split$GO.ID %in% go_exclude$GO.ID),]
+
+```
+
+
+```{r}
+go_multi_unique <- unique(go_multi_split_filt$GO.ID)
+GO_sim_mat <- outer(X = go_multi_unique, Y = go_multi_unique, FUN =  Vectorize(go_sim))
+#pheatmap(GO_sim_mat)
+colnames(GO_sim_mat) <- go_multi_unique
+row.names(GO_sim_mat) <- go_multi_unique
+
+
+
+```
+
+
+Fetch associated genes, merge with gene specific timecourse data and summarize 
+```{r}
+source('~/Dropbox/jp_seq/go2sym.R')
+GO_genes <- go2sym(go_multi_split_filt$GO.ID, ontology = "MF", return_df = TRUE)
+
+```
+
+
+Get summary information about when the genes turn on (t50), this only makes sense if it is for the whole max_cat   
+
+```{r}
+gene_t50_time_GO_2fc <- merge(x = GO_genes, y = gene_t50_time_2fc, by.x = "SYMBOL", by.y = "mgi_symbol", all = FALSE)
+
+GO_t50_summary_2fc <- gene_t50_time_GO_2fc %>%
+  dplyr::filter(avg_fc >= 2) %>%
+  dplyr::group_by(max_cat, GO, ONTOLOGY) %>%
+  dplyr::arrange(avg_t50) %>%
+  dplyr::mutate(t50_rank=row_number()) %>%
+  dplyr::summarise(t50_mean = mean(avg_t50),
+                   t50_sd = sd(avg_t50),
+                   t50_rank_sd = sd(t50_rank),
+                   t50_rank_mean = mean(t50_rank),
+                  avg_FC_mean = mean(avg_fc), 
+                  avg_FC_sd = sd(avg_fc), 
+                  gene_num = length(SYMBOL))
+
+GO_t50_all_cat_2fc <- gene_t50_time_GO_2fc %>% 
+  dplyr::group_by( GO, ONTOLOGY) %>%
+  dplyr::summarise(all_num = length(SYMBOL))
+
+# calculate enrichment
+GO_t50_summary_2fc <- merge(x = GO_t50_summary_2fc, y = GO_t50_all_cat_2fc, by.x = c("GO", "ONTOLOGY"), by.y = c("GO", "ONTOLOGY")) 
+GO_t50_summary_2fc$gene_freq <-  GO_t50_summary_2fc$gene_num / GO_t50_summary_2fc$all_num
+
+```
+
+
+merge summary time information with topGO data 
+Need to merge across the whole max_cat 
+
+```{r}
+source('~/Dropbox/jp_seq/go_cluster.R')
+
+
+#extract the summary max_cat variable from the composiste variable, FIX THIS LATER 
+go_multi_split_filt$max_cat <-  gsub("Max_(.*) t50_.*", "\\1", go_multi_split_filt$time_window)
+
+go_multi_split_sum <- left_join(go_multi_split_filt, GO_t50_summary_2fc, by = c("GO.ID" = "GO", "max_cat" = "max_cat"))
+#go_multi_split_sum <- left_join(go_multi_split_filt, GO_t50_summary_2fc, by = c("GO.ID" = "GO", "time_window" = "max_t50_avgfc_cat"))
+
+
+
+go_multi_split_sum_diff <- go_multi_split_sum  %>%
+  #dplyr::filter(max_cat == "P14_P56" ) %>%
+  dplyr::filter(time_window %in% inc_diff_group_2fc ) %>%
+#  dplyr::filter(time_window != "Max_P14_P56 t50_Early >2 log2FC") %>%
+  dplyr::filter(Annotated < 150) %>%
+  dplyr::filter(Significant >= 5) %>%
+  dplyr::arrange( elimFisher)  
+
+go_multi_split_sum_diff$go_desc <-  as.vector(Term(go_multi_split_sum_diff$GO.ID))
+
+
+
+late_terms <- go_multi_split_sum_diff %>%
+  dplyr::filter(time_window == "Max_P14_P56 t50_Late >2 log2FC")  %>%
+ dplyr::arrange( desc(Significant), elimFisher)
+
+mid_terms <- go_multi_split_sum_diff %>%
+  dplyr::filter(time_window == "Max_P14_P56 t50_Mid >2 log2FC")  %>%
+ dplyr::arrange( desc(Significant), elimFisher)
+
+go_multi_split_sum_diff <- go_cluster(go_multi_split_sum_diff,  GO_sim_mat, GO_name = "GO.ID", cutoff = 0.6)
+
+
+
+```
+
+To get a variety of terms pick a single go term based on GO_cluster 
+
+```{r, eval = TRUE}
+go_multi_split_sum_diff_top <- go_multi_split_sum_diff %>%
+  dplyr::filter(max_cat == "P14_P56") %>%
+#  dplyr::filter(t50_sd  < 10) %>%
+#  dplyr::filter(t50_rank_mean  < 20) %>%
+  dplyr::group_by(time_window, GO_cluster) %>%
+  slice(which.max(Significant)) %>%
+  dplyr::ungroup() %>%
+  droplevels() 
+
+
+go_multi_split_sum_diff_top <- go_multi_split_sum_diff_top %>%
+  dplyr::group_by(time_window) %>%
+  dplyr::arrange( desc(Significant), elimFisher) %>%
+  dplyr::slice(c(1,2))
+
+go_multi_split_sum_diff_top <- go_multi_split_sum_diff_top %>%
+  dplyr::select(-max_cat )
+
+go_multi_split_sum_diff_top$Term <- factor(go_multi_split_sum_diff_top$Term, 
+                                      levels = unique(go_multi_split_sum_diff_top$Term[order(go_multi_split_sum_diff_top$t50_mean)]))
+
+
+gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "ONTOLOGY" = "ONTOLOGY"))
+```  
+
+
+
+
+```{r, fig.width= 4.5, fig.height= 3 }  
+library(ggrepel)
+library(ggforce)
+
+summary_plot <- go_multi_split_sum_diff_top %>%
+ dplyr::filter(time_window %in% inc_diff_group_2fc) %>%
+  #dplyr::ungroup() %>%
+  #  dplyr::mutate(time_window = case_when(
+  #  time_window == "Max_P14_P56 t50_Late >2 log2FC"       ~  "Increase late",
+  #  time_window == "Max_P14_P56 t50_Mid >2 log2FC"       ~  "Increase mid",
+  #  TRUE                                                          ~ "other"
+  #  ) ) %>%
+  #dplyr::filter(topgoFisher < 1e-2) %>% 
+ggplot( aes(x = enrichment, y = Term, colour = time_window, size = -log10(elimFisher))) + 
+  geom_point() + 
+  # scale_colour_manual(values = c( "Increase late" = "royalblue3",  "Increase mid" = "darkorange3", "other" = "grey")) +
+#    facet_grid(GO_cluster~., scales = "free_y", shrink = TRUE, space = "free_y") + 
+    theme_classic() +  
+  
+  theme(legend.position="none",
+          legend.direction = "horizontal",
+          text = element_text(size = 18),
+          #axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.major.y = element_line(colour="grey", size=0.5),
+          plot.background=element_blank(),
+      strip.background = element_blank(), 
+    strip.text = element_blank()
+    #axis.title.x =  element_blank() 
+          ) + 
+    guides(size=guide_legend(nrow=2,byrow=TRUE))
+  
+
+summary_plot
+
+#gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "time_window" = "max_t50_avgfc_cat", "max_cat" = "max_cat", "ONTOLOGY" = "ONTOLOGY"))
+
+#gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "max_cat" = "max_cat", "ONTOLOGY" = "ONTOLOGY"))
+
+
+
+
+#gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "ONTOLOGY" = "ONTOLOGY", "time_window" = "tim"))
+
+
+#gene_t50_time_GO_2fc_sum_gene <- gene_t50_time_GO_2fc_sum_gene %>%
+#  dplyr::distinct(SYMBOL,GO_cluster, .keep_all = TRUE)
+
+jitter <- position_jitter(width = 0, height = 0.2)
+
+gene_plot <- gene_t50_time_GO_2fc_sum_gene %>%
+  #dplyr::filter(avg_fc >= 2) %>%
+  dplyr::filter(max_cat == "P14_P56" & avg_fc >= 2 ) %>%
+  
+  dplyr::mutate(avg_t50 =  Winsorize(avg_t50, maxval = 30)) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  #dplyr::mutate(Term =  str_wrap(Term, width = 25)) %>% 
+  dplyr::mutate(SYMBOL = ifelse(avg_fc >= 5, SYMBOL, "" )) %>%
+  dplyr::mutate(SYMBOL = ifelse(avg_t50 > 10, SYMBOL, "" )) %>%
+#  ggplot( aes(x = as.factor(Term), y = avg_t50, size = avg_fc, colour = time_window)) + 
+  ggplot( aes(x = as.factor(Term), y = avg_t50, size = avg_fc)) + 
+   #geom_point(alpha = 0.3, position = jitter) + 
+  geom_sina(alpha = 0.2, maxwidth =1, bins = 30) +
+#  geom_violin() + 
+  coord_flip()
+
+gene_plot <- gene_plot +  
+  geom_hline(yintercept = 6, linetype = "dashed") + 
+  geom_hline(yintercept = 18,linetype = "dashed") 
+
+
+gene_plot <- gene_plot +  geom_point(data = go_multi_split_sum_diff_top,
+            aes(x = Term, y = t50_mean), colour = "red", shape = 5, size = 3,
+             inherit.aes = TRUE) 
+#    geom_errorbar(data = go_multi_split_sum_diff_top,
+#                aes(x = Term, y= 0, xmin= t50_mean-t50_sd, ymax=t50_mean+t50_sd),
+#                              colour="black", width=.1)
+
+#  geom_text_repel(force = 10, 
+#                  size = 5, 
+#                  position = jitter) + 
+
+  
+    
+gene_plot <- gene_plot +  scale_y_continuous(limits = c(0, 30),
+                      breaks = time_points, 
+                     labels = gsub("P18", "", names(time_points)), 
+                     name = "Time at 50% max change") 
+  
+#  facet_grid(GO_cluster~., scales = "free_y", shrink = TRUE, space = "free_y") +
+
+
+
+gene_plot <- gene_plot +  
+  theme_classic() + 
+    theme(legend.position =  "none",
+          legend.direction = "horizontal",
+          text = element_text(size = 18),
+          #axis.text.x=element_blank(),
+          #axis.text.y=element_blank(),
+         #axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          #axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.major.y = element_line(colour="grey", size=0.5),
+          plot.background=element_blank(),
+      strip.background = element_blank(), 
+    strip.text = element_blank() 
+    #axis.title.x =  element_blank() 
+  )
+
+gene_plot
+
+
+ggarrange(gene_plot, summary_plot, ncol = 2,  align = "h", widths = c(5,1))
+
+```
+
+
+
+Repeat with other max_cat 
+
+
+```{r}
+
+
+
+go_multi_split_sum_all <- go_multi_split_sum  %>%
+  dplyr::filter(str_detect(time_window, ">2 log2FC")) %>%
+  dplyr::filter(Annotated < 150) %>%
+  dplyr::filter(Significant >= 5) %>%
+  dplyr::arrange( elimFisher)  
+
+go_multi_split_sum %>%
+  dplyr::filter(time_window == "Max_E15 t50_Late >2 log2FC")
+go_multi_split_sum %>%
+  dplyr::filter(time_window == "Max_E15 t50_Mid >2 log2FC")
+go_multi_split_sum %>%
+  dplyr::filter(time_window == "Max_E15 t50_Early >2 log2FC")
+
+
+go_multi_split_sum_all <- go_cluster(go_multi_split_sum_all,  GO_sim_mat, GO_name = "GO.ID", cutoff = 0.4)
+
+
+```
+
+To get a variety of terms pick a single go term based on GO_cluster 
+
+```{r, eval = TRUE}
+
+go_multi_split_sum_all_top <- go_multi_split_sum_all %>%
+#  dplyr::filter(t50_sd  < 10) %>%
+#  dplyr::filter(t50_rank_mean  < 20) %>%
+  dplyr::group_by(time_window, GO_cluster) %>%
+  slice(which.max(Significant)) %>%
+  dplyr::ungroup() %>%
+  droplevels() 
+
+
+
+
+go_multi_split_sum_all_top <- go_multi_split_sum_all_top %>%
+  dplyr::group_by(time_window) %>%
+  dplyr::arrange( desc(Significant), elimFisher) %>%
+  dplyr::slice(c(1,2))
+
+
+
+```  
+
+
+
+
+```{r, fig.width= 4.5, fig.height= 6 }  
+library(ggrepel)
+library(ggforce)
+
+summary_plot <- go_multi_split_sum_all_top %>%
+  dplyr::ungroup() %>%
+    droplevels()  %>%
+  
+  #  dplyr::mutate(time_window = case_when(
+  #  time_window == "Max_P14_P56 t50_Late >2 log2FC"       ~  "Increase late",
+  #  time_window == "Max_P14_P56 t50_Mid >2 log2FC"       ~  "Increase mid",
+  #  TRUE                                                          ~ "other"
+  #  ) ) %>%
+  #dplyr::filter(topgoFisher < 1e-2) %>% 
+ggplot( aes(x = enrichment, y = Term, colour = time_window, size = -log10(elimFisher))) + 
+  geom_point() + 
+  # scale_colour_manual(values = c( "Increase late" = "royalblue3",  "Increase mid" = "darkorange3", "other" = "grey")) +
+    facet_grid(max_cat~., scales = "free", shrink = TRUE, space = "free") + 
+    theme_classic() +  
+  theme(legend.position="none",
+          legend.direction = "horizontal",
+          text = element_text(size = 18),
+          #axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.major.y = element_line(colour="grey", size=0.5),
+          plot.background=element_blank(),
+      strip.background = element_blank(), 
+    strip.text = element_blank()
+    #axis.title.x =  element_blank() 
+          ) + 
+    guides(size=guide_legend(nrow=2,byrow=TRUE))
+  
+
+summary_plot
+```
+
+
+```{r}
+
+
+go_multi_split_sum_all_top2 <- go_multi_split_sum_all_top %>%
+  dplyr::rename(GO_max_cat = max_cat) 
+
+go_multi_split_sum_all_top2$Term <- factor(go_multi_split_sum_all_top2$Term, 
+                                      levels = unique(go_multi_split_sum_all_top2$Term[order(go_multi_split_sum_all_top2$t50_mean)]))
+
+
+
+gene_t50_time_GO_2fc_all_sum_gene<- left_join(go_multi_split_sum_all_top2, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "ONTOLOGY" = "ONTOLOGY"))
+
+gene_t50_time_GO_2fc_all_sum_gene <- gene_t50_time_GO_2fc_all_sum_gene %>% 
+  dplyr::filter( max_cat == GO_max_cat)
+
+
+```
+
+
+```{r, fig.width= 4.5, fig.height= 6 }  
+#gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "time_window" = "max_t50_avgfc_cat", "max_cat" = "max_cat", "ONTOLOGY" = "ONTOLOGY"))
+
+#gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "max_cat" = "max_cat", "ONTOLOGY" = "ONTOLOGY"))
+
+
+
+
+#gene_t50_time_GO_2fc_sum_gene<- left_join(go_multi_split_sum_diff_top, gene_t50_time_GO_2fc, by = c("GO.ID" = "GO", "ONTOLOGY" = "ONTOLOGY", "time_window" = "tim"))
+
+
+#gene_t50_time_GO_2fc_sum_gene <- gene_t50_time_GO_2fc_sum_gene %>%
+#  dplyr::distinct(SYMBOL,GO_cluster, .keep_all = TRUE)
+
+jitter <- position_jitter(width = 0, height = 0.2)
+
+gene_plot <- gene_t50_time_GO_2fc_all_sum_gene %>%
+  #dplyr::filter(avg_fc >= 2) %>%
+  dplyr::filter(max_cat != "unchanged"  & avg_fc >= 2 ) %>%
+  
+  dplyr::mutate(avg_t50 =  Winsorize(avg_t50, maxval = 30)) %>%
+  dplyr::mutate(avg_fc =  Winsorize(avg_fc, minval = -7.5, maxval = 7.5)) %>%
+  #dplyr::mutate(Term =  str_wrap(Term, width = 25)) %>% 
+  dplyr::mutate(SYMBOL = ifelse(avg_fc >= 5, SYMBOL, "" )) %>%
+  dplyr::mutate(SYMBOL = ifelse(avg_t50 > 10, SYMBOL, "" )) %>%
+#  ggplot( aes(x = as.factor(Term), y = avg_t50, size = avg_fc, colour = time_window)) + 
+  ggplot( aes(x = as.factor(Term), y = avg_t50, size = avg_fc)) + 
+   #geom_point(alpha = 0.3, position = jitter) + 
+  geom_sina(alpha = 0.3, maxwidth =0.5, bins = 30) +
+#  geom_violin() + 
+  coord_flip()
+
+gene_plot <- gene_plot +  
+  geom_hline(yintercept = 6, linetype = "dashed") + 
+  geom_hline(yintercept = 18,linetype = "dashed") 
+
+
+gene_plot <- gene_plot +  geom_point(data = go_multi_split_sum_all_top,
+            aes(x = Term, y = t50_mean), colour = "red", shape = 5, size = 3,
+             inherit.aes = TRUE) 
+#    geom_errorbar(data = go_multi_split_sum_diff_top,
+#                aes(x = Term, y= 0, xmin= t50_mean-t50_sd, ymax=t50_mean+t50_sd),
+#                              colour="black", width=.1)
+
+#  geom_text_repel(force = 10, 
+#                  size = 5, 
+#                  position = jitter) + 
+
+  
+    
+gene_plot <- gene_plot +  scale_y_continuous(limits = c(0, 30),
+                      breaks = time_points, 
+                     labels = gsub("P18", "", names(time_points)), 
+                     name = "Time at 50% max change") + 
+  
+  facet_grid(max_cat~., scales = "free", shrink = TRUE, space = "free") 
+
+
+
+gene_plot <- gene_plot +  
+  theme_classic() + 
+    theme(legend.position =  "none",
+          legend.direction = "horizontal",
+          text = element_text(size = 18),
+          #axis.text.x=element_blank(),
+          #axis.text.y=element_blank(),
+         #axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          #axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.major.y = element_line(colour="grey", size=0.5),
+          plot.background=element_blank(),
+      strip.background = element_blank(), 
+    strip.text = element_blank() 
+    #axis.title.x =  element_blank() 
+  )
+
+gene_plot
+
+
+ggarrange(gene_plot, summary_plot, ncol = 2,  align = "h", widths = c(5,1))
+
+```

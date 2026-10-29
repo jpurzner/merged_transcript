@@ -1,0 +1,877 @@
+---
+title: "EZH2_GNP_DIFF_Figure3"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Histone marks to 
+
+
+## Figure 3
+```{r, eval = FALSE}
+install.packages('latex2exp')
+install.packages("directlabels")
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("ggrepel")
+install.packages("cowplot")
+install.packages("ggpubr")
+install.packages("stringr")
+install.packages("mclust")
+install.packages("kknn")
+install.packages("GMD")
+install.packages("mclust")
+install.packages("reshape2")
+install.packages("mixtools")
+install.packages("contoureR")
+install.packages("dbscan")
+install.packages("zoo")
+
+
+
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install(version = "3.13")
+BiocManager::install(c("RBGL","graph","MineICA"))
+
+install.packages("devtools")
+library(devtools)
+devtools::install_github("js229/Vennerable")
+devtools::install_github('thomasp85/ggforce', force = TRUE)
+
+
+
+
+```
+
+```{r}
+library(scales)
+library(ggforce)
+library(latex2exp)
+library(directlabels)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(devtools)
+library(ggplot2)
+library(reshape2)
+library(cowplot)
+library(stringr)
+library(mclust)
+library(ggpubr)
+library(tidyr)
+library(DescTools)
+library(RColorBrewer)
+library(contoureR)
+library(dbscan)
+library(zoo)
+
+```
+
+
+
+# Panel A and B
+
+```{r Fig1AB}
+
+
+# histone_rlog_prune <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histone_K36_RNAseq_prune.txt", header = TRUE, row.names = 1, sep = "\t")
+
+histone_rlog_prune <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histones_atac_rnaseq_bm_nodup_2017_12_15.txt", header = TRUE, row.names = 1, sep = "\t")
+
+# reorder the columns 
+condition = c("H3K4me3", "Pol2Ser5P", "Pol2Ser5P","H3K27ac", "H3K27ac", "H3K4me1", "H3K4me1", "ATAC",  "H3K36me3", "RNAseq", "RNAseq", "RNAseq","MIRA", "MIRA", "MIRA", "Ring1b", "Ring1b", "H2Aubi119", "H2Aubi119",  "H3K27me3", "H3K27me3")
+colnames(histone_rlog_prune)
+colnames(histone_rlog_prune)[c(15,16)] <- c("Pol2Ser5P_abcam", "Pol2Ser5P_AM")
+colnames(histone_rlog_prune)[11] <- "GNP_Ring1b_rep1"
+
+new_order <- unlist(lapply(unique(condition), function(x) grep(x, colnames(histone_rlog_prune))))
+histone_rlog_prune <- histone_rlog_prune[,c(new_order)]
+#colnames(histone_rlog_prune)
+
+
+colData <- data.frame(cols = colnames(histone_rlog_prune), condition = condition)
+row.names(colData) <- colData$cols
+colData$cols <- NULL
+label_genes <- c("Meis2", "Lhx9", "Gli1", "Ccnd1","Ccnd2", "Meis2", "St8sia5", "Gabra6", "Ablim1", "Unc5b", "Wnt7a", "Phyhip", "Hr", "Cbx7")
+#load("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histone_k36_RNAse_p100_t0.RData")
+load("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histones_atac_rnaseq_bm_nodup_2017_12_16_tsne_p300_t0_iter5k.RData")
+
+#histone_clusters <- plot_tsne_kmeans(histone_rlog_prune, h36r_p100_t0,12, colData, plot_genes)
+#histone_clusters <- plot_tsne_kmeans(histone_rlog_prune, h36r_p100_t0,10, colData, plot_genes, tsne_cluster_mode = "spectral")
+
+```
+
+
+check the optimal number of clusters 
+code from: 
+https://www.r-bloggers.com/finding-optimal-number-of-clusters/
+author: https://www.r-bloggers.com/author/sunny-anand/
+```{r, eval = FALSE}
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 15
+data <- histone_rlog_prune
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data, k, nstart=50,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+
+```
+
+
+
+
+```{r,fig.width=6, fig.height=8}
+
+source('~/Dropbox/jp_seq/plot_tsne_kmeans.R')
+library(ggplot2)
+library(ggrepel)
+
+set.seed(42)
+
+histone_clusters <- plot_tsne_kmeans(histone_rlog_prune, hist_tsne_p300_t0_max_iter5k,12, meta = colData, labels = label_genes, tsne_cluster_mode = "spectral", cluster_order = c("H3K27me3","H3K27ac"), sort_rows = FALSE)
+
+# generate a color index for all subsequent plots 
+color_table <- table(histone_clusters$tsne_colors, histone_clusters$tsne_k)
+tsne_colors <- names(rowSums(color_table))
+names(tsne_colors) <- colnames(color_table)
+
+color_table <- table(histone_clusters$data_colors, histone_clusters$data_k)
+data_colors <- names(rowSums(color_table))
+names(data_colors) <- colnames(color_table)
+
+data_k_num <- table(histone_clusters$data_k)
+write.table(histone_clusters, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/paper/histone_clusters_2018_1_12.txt", sep = "\t", row.names = TRUE, col.names = TRUE)
+```
+
+
+To understand the y-axis manipulation to overlay the histogram and density plot, take a look at http://stackoverflow.com/questions/27611438/density-curve-overlay-on-histogram-where-vertical-axis-is-frequency-aka-count
+
+Average all the replicates 
+```{r}
+library(reshape2)
+library(plyr)
+histone_rlog_prune_m <- melt(as.matrix(histone_rlog_prune))
+colnames(histone_rlog_prune_m) <- c("gene", "name", "value")
+# looks up id from metatable and adds to new column 
+histone_rlog_prune_m$id <- colData[match(histone_rlog_prune_m$name, row.names(colData)),1] 
+histone_rlog_prune_mean <- dcast(histone_rlog_prune_m, gene~id, mean)
+row.names(histone_rlog_prune_mean) <- histone_rlog_prune_mean$gene
+histone_rlog_prune_mean$gene <- NULL
+
+histone_rlog_prune_mean$gene <- row.names(histone_rlog_prune_mean)
+
+histone_rlog_prune_mean_m <-  melt(histone_rlog_prune_mean, id.vars = "gene")
+ggplot(histone_rlog_prune_mean_m, aes(x = value)) + 
+    facet_wrap(~variable) + 
+    geom_histogram(bins = 100) 
+```
+
+binarize the histones marks 
+
+```{r, fig.width= 5, fig.height= 5}
+
+library(parallel)
+library(mclust)
+library(mixtools)
+source('~/Dropbox/jp_seq/binarize_counts.R')
+
+# Calculate the number of cores
+no_cores <- detectCores() - 1
+
+# Initiate cluster
+cl <- makeCluster(no_cores)
+
+call_mclust <- function (df) {
+  mclust_obj = Mclust(df$value)
+  df$group <- mclust_obj$classification
+  return(df)
+}
+
+call_mix_bin <- function(df) {
+  bin_res <- binarize_counts(df$value)
+  df$group <- bin_res$bin
+  return(df)
+}
+
+clusterExport(cl, list( "call_mclust", "binarize_counts", "call_mix_bin"))
+clusterEvalQ(cl, list(library(mclust), library(mixtools), library(ggplot2)))
+
+
+
+histone_rlog_prune_mean_l <- split(histone_rlog_prune_mean_m, as.factor(histone_rlog_prune_mean_m$variable))
+  
+histone_rlog_prune_mclust <- parLapply(cl, histone_rlog_prune_mean_l, call_mclust)
+histone_rlog_prune_bin <- parLapply(cl, histone_rlog_prune_mean_l, call_mix_bin)
+
+stopCluster(cl)
+
+histone_rlog_prune_mclust_m <- dplyr::bind_rows(histone_rlog_prune_mclust)  
+histone_rlog_prune_bin_m <- dplyr::bind_rows(histone_rlog_prune_bin)  
+
+hist_breaks <- seq(0, 1, by = 0.02)
+n <- dim(histone_rlog_prune_mean)[1]
+
+
+ggplot(histone_rlog_prune_mclust_m, aes(value)) + 
+  #geom_histogram(aes(y = ..count..), bins = 50, alpha = 0.5, position="identity" ) #+ 
+  geom_histogram(aes(y = ..count..), colour = "black", fill = "grey", breaks = hist_breaks, alpha = 0.8) +
+  #geom_density(data = h3k27me3, aes(colour = factor(h3k27me3_group), fill = factor(h3k27me3_group)), alpha = 0.3) 
+  geom_density(aes(y =..density..*(n * 0.02),colour = factor(group), fill = factor(group)), alpha = 0.3)  + 
+  facet_wrap(~variable)
+
+
+ggplot(histone_rlog_prune_bin_m, aes(value)) + 
+  #geom_histogram(aes(y = ..count..), bins = 50, alpha = 0.5, position="identity" ) #+ 
+  geom_histogram(aes(y = ..count..), colour = "black", fill = "grey", breaks = hist_breaks, alpha = 0.8) +
+  #geom_density(data = h3k27me3, aes(colour = factor(h3k27me3_group), fill = factor(h3k27me3_group)), alpha = 0.3) 
+  geom_density(aes(y =..density..*(n * 0.02),colour = factor(group), fill = factor(group)), alpha = 0.3)  + 
+  facet_wrap(~variable) + 
+  theme(legend.position = "bottom", 
+          legend.direction = "horizontal",
+          legend.box.just	= "top",
+          legend.box = "horizontal", 
+          panel.spacing = unit(2, "lines"))
+
+
+histone_mclust <- histone_rlog_prune_mclust_m %>%
+  dplyr::select(-value) %>%
+  tidyr::spread(key = variable, value = group )
+
+histone_bin <- histone_rlog_prune_bin_m %>%
+  dplyr::select(-value) %>%
+  tidyr::spread(key = variable, value = group )
+
+
+```
+
+```{r}
+bin_1 <- binarize_counts(histone_rlog_prune_mean_l[[1]]$value)
+
+
+```
+
+
+## Split with enhancer data
+
+```{r, fig.height= 6, fig.width= 6}
+
+enh_cor_start_all <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/enh_cor_start_all_2018_01_09.txt", sep = "\t", row.names = 1, header = TRUE)
+
+enh_labels <- c("5 to 10K", "10 to 30K", "30 to 60K", "60 to 100K", "100 to 200K", "200 to 400K", "> 500K")
+
+enh_cor_start_all$GNP_H3K27ac_rep1.category <- factor(enh_cor_start_all$GNP_H3K27ac_rep1.category, levels = enh_labels)
+enh_cor_start_all$GNP_H3K27ac_rep2.category <- factor(enh_cor_start_all$GNP_H3K27ac_rep2.category, levels = enh_labels)
+enh_cor_start_all$GNP_H3K4me1_rep1.category <- factor(enh_cor_start_all$GNP_H3K4me1_rep1.category, levels = enh_labels)
+enh_cor_start_all$GNP_H3K4me1_rep2.category <- factor(enh_cor_start_all$GNP_H3K4me1_rep2.category, levels = enh_labels)
+enh_cor_start_all$GNP_P7_ATACseq.category <- factor(enh_cor_start_all$GNP_P7_ATACseq.category, levels = enh_labels)
+
+table(row.names(enh_cor_start_all) == row.names(histone_clusters))
+table(row.names(enh_cor_start_all) == row.names(histone_rlog_prune))
+dim(enh_cor_start_all)
+dim(histone_clusters)
+
+histones_enh <- merge(x = histone_clusters, y = enh_cor_start_all, by.x = 0, by.y = 0, all = FALSE)
+row.names(histones_enh) <- histones_enh$Row.names
+histones_enh$Row.names <- NULL
+
+
+
+ggplot(histones_enh, 
+       aes(x= x, y = y, color = data_k)) + 
+  geom_point(size = 0.3) +
+  scale_colour_manual(values = data_colors) + 
+  facet_wrap( ~ GNP_H3K4me1_rep1.category)
+
+ggplot(histones_enh, 
+       aes(x= x, y = y, color = data_k)) + 
+  geom_point(size = 0.3) +
+  scale_colour_manual(values = data_colors) + 
+  facet_wrap( ~ GNP_P7_ATACseq.category)
+
+```
+
+The reduced RNAseq timecourse by histone TSNE plot
+
+toc_t50 is from the RNAseq features v4
+toc_t50_histones chooses the rowMax histone from the table 
+
+```{r}
+library(ggplot2)
+source('~/Dropbox/jp_seq/line_scatter_facet.R')
+source('~/Dropbox/jp_seq/plot_group_timeline.R')
+
+ 
+load("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/log2_norm_list_2017_01_09.RData")
+
+toc_t50_histones <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/toc_t50_histones_2018_05_25.txt", sep = "\t", row.names = 1, header = TRUE)
+toc_t50 <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/toc_t50_2018_05_25.txt", sep = "\t", row.names = 1, header = TRUE)
+enh_quant <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/enhancer_dist_quant.txt", sep = "\t", row.names = 1, header = TRUE)
+
+
+pseudo_time <- c("E15","P0", "P1", "P7", "P12", "P14", "P18", "P21", "P56")
+
+gnp_v1_anno <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/gnp_v1_annotation.txt", sep = "\t",  header = TRUE)
+head(gnp_v1_anno)
+table(row.names(histone_rlog_prune) == gnp_v1_anno$keep_transcript)
+# add annotation 
+toc_t50_ano <- merge(x = gnp_v1_anno, y = toc_t50, by.x = "ensembl_gene_id", by.y = "ensembl_gene_id", all.y = TRUE)
+
+
+# clean table 
+toc_t50_ano$chromosome_name <- toc_t50_ano$chromosome_name.x 
+toc_t50_ano$chromosome_name.x <- NULL
+toc_t50_ano$chromosome_name.y <- NULL
+toc_t50_ano$Row.names <- NULL
+
+
+
+
+histone_promoter <- histone_rlog_prune 
+histone_promoter$promoter_histone_sum <- rowSums(histone_rlog_prune)
+#colnames(histone_rlog_prune_mean) <- str_c(colnames(histone_rlog_prune_mean), "_mean")
+
+histone_promoter <- cbind(histone_promoter, histone_rlog_prune_mean)
+
+
+# merge promoter and enhancer data 
+histone_promoter_enh <- merge(x = histone_promoter, y = histones_enh, by.x = 0, by.y = 0, all = TRUE)
+row.names(histone_promoter_enh) <- histone_promoter_enh$Row.names 
+histone_promoter_enh$Row.names <- NULL
+
+# merge enhancer quants 
+histone_promoter_enh <- merge(x = histone_promoter_enh, y = enh_quant, by.x = 0, by.y = 0, all.x = TRUE)
+row.names(histone_promoter_enh) <- histone_promoter_enh$Row.names 
+histone_promoter_enh$Row.names <- NULL
+
+# to get the toc_t50 replicated for each TSS we have promo
+histones_promoter_enh_ano <- merge(x = gnp_v1_anno, y = histone_promoter_enh, by.x = "keep_transcript", by.y = 0, all.y = TRUE)
+histone_k_toc_t50_ano <- merge(x = histones_promoter_enh_ano, y = toc_t50_ano[,-c(2:8)], by.x = "ensembl_gene_id", by.y = "ensembl_gene_id", all = FALSE)
+
+dim(histone_k_toc_t50_ano)
+table(duplicated(histone_k_toc_t50_ano$keep_transcript))
+histone_k_toc_t50_ano <- histone_k_toc_t50_ano[!duplicated(histone_k_toc_t50_ano$keep_transcript),]
+
+histone_k_toc_t50_ano <- histone_k_toc_t50_ano[!is.na(histone_k_toc_t50_ano$expr),]
+histone_k_toc_t50 <-  histone_k_toc_t50_ano
+
+```
+
+
+
+
+
+
+
+## Corelation plots for components of histone chip-seq 
+
+```{r Fig1SB, fig.width=8.5, fig.height=12}
+library(GGally)
+
+#histone_rlog_prune_mean <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histone_K36_RNAseq_prune_mean.txt", header = TRUE, row.names = 1, sep = "\t")
+histone_rlog_prune_mean_k <- merge(x = histone_rlog_prune_mean, 
+                                   y = histone_clusters[,c(3,4)], 
+                                   by.x = 0, by.y = 0, all= FALSE )
+row.names(histone_rlog_prune_mean_k) <- histone_rlog_prune_mean_k$Row.names
+histone_rlog_prune_mean_k$Row.names <- NULL 
+p <- GGally::ggpairs(histone_rlog_prune_mean_k, 
+                columns = c(2:11), 
+                #mapping = ggplot2::aes(color = data_k), 
+                lower = list(continuous = wrap("points", alpha = 0.3, size=0.1), mapping = aes(color = data_k)) )
+
+
+
+                #upper = list(continuous = wrap("cor", size = 1)))
+
+# to solve the colour manual issues used code from 
+# http://stackoverflow.com/questions/34740210/how-to-change-the-color-palette-for-ggallyggpairs
+for(i in 1:p$nrow) {
+  for(j in 1:p$ncol){
+    p[i,j] <- p[i,j] + 
+        scale_colour_manual(values = data_colors) +
+        scale_fill_manual(values = data_colors)  
+  }
+}
+
+p
+
+```
+
+```{r}
+histone_k_toc_t50_gene <- histone_k_toc_t50  %>% 
+  dplyr::group_by(ensembl_gene_id) %>%
+  dplyr::slice(which.max(promoter_histone_sum))
+              
+histone_k_toc_t50_gene <- as.data.frame(histone_k_toc_t50_gene)            
+```
+
+## scRNAseq annotation
+
+Add scRNAseq data to the histone data
+
+```{r load_data}
+sce_agg_merged_cc_ann <- read.table(file = "~/Dropbox/GNP_MB_integrate/MT_scRNAseq/sce_contaminant_full.txt", 
+                  header= TRUE,
+                sep = "\t")
+
+scRNAseq_vars <- colnames(sce_agg_merged_cc_ann)
+scRNAseq_vars <- scRNAseq_vars[165:length(scRNAseq_vars)]
+
+sce_vars <- sce_agg_merged_cc_ann %>%
+  dplyr::select(keep_transcript, scRNAseq_vars) 
+
+table(duplicated(sce_vars$keep_transcript))
+table(duplicated(histone_k_toc_t50$keep_transcript))
+
+test <- histone_k_toc_t50 %>%
+  dplyr::left_join(., sce_vars, by = "keep_transcript") 
+
+```
+
+
+```{r}
+
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_t50_cat %in% c("Max_P14_P56 t50_Early", "Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late" )) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+ggplot(aes(x= H3K27me3, y = Ring1b, colour = as.factor(max_t50_cat))) + geom_point()
+
+
+sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_t50_cat %in% c("Max_P14_P56 t50_Early", "Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late" )) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+ggplot(aes(x= H3K27me3, y = Ring1b, colour = as.factor(max_t50_cat))) + geom_point()
+
+
+```
+
+
+```{r}
+
+diff_genes <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_cat == "P14_P56" ) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+  dplyr::select(ensembl_gene)
+  
+
+sce_agg_merged_cc_ann %>% 
+  #dplyr::filter(max_t50_avgfc_cat %in% 
+   #               c("Max_P14_P56 t50_Late 1-2 log2FC", "Max_P14_P56 t50_Late >2 log2FC", 
+  #                  "Max_P14_P56 t50_Mid 1-2 log2FC", "Max_P14_P56 t50_Mid >2 log2FC") ) %>%
+  #dplyr::mutate(max_t50_cat = factor(as.character(max_t50_cat))) %>%
+  # dplyr::mutate(max_t50_avgfc_cat = factor(max_t50_avgfc_cat, levels = levels(max_t50_avgfc_cat)[c(3,1,4,2)])) %>%
+  dplyr::mutate(avg_fc = as.numeric(Winsorize(avg_fc, minval = 1, maxval = 6))) %>%
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) %>%
+  ggplot(aes(x = H3K27me3, y = Ring1b, fill = diff_gene, colour = data_k)) + 
+    geom_point( shape = 21, alpha = 0.8, size = 0.5) +
+    scale_size(range = c(0.01,3)) + 
+    scale_colour_manual(values = data_colors) + 
+  labs(fill = "K-means clusters", size = "Average log2 fold change") + 
+  theme()
+
+test <- sce_agg_merged_cc_ann %>% 
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes    ~  "differentiation",
+      TRUE                             ~  "other"
+  ))
+
+
+sce_agg_merged_cc_ann %>% 
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes$ensembl_gene    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) %>%
+  ggplot(aes(x = H3K27me3, y = Ring1b, alpha = diff_gene, fill = diff_gene, colour = diff_gene, size = diff_gene)) + 
+    geom_point() +
+   scale_colour_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+  scale_fill_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+    scale_alpha_manual(values = c( "differentiation" = 1, "other" = 0.3)) +
+   scale_size_manual(values = c( "differentiation" = 1, "other" = 0.5)) +
+  theme()
+
+sce_agg_merged_cc_ann %>% 
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes$ensembl_gene    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) %>%
+  ggplot(aes(x = H3K27me3, y = H3K4me3, alpha = diff_gene, fill = diff_gene, colour = diff_gene, size = diff_gene)) + 
+    geom_point() +
+   scale_colour_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+  scale_fill_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+    scale_alpha_manual(values = c( "differentiation" = 1, "other" = 0.3)) +
+   scale_size_manual(values = c( "differentiation" = 1, "other" = 0.5)) +
+  theme()
+
+
+sce_agg_merged_cc_ann %>% 
+  dplyr::filter(max_cat %in% c("E15","P0_7", "P14_P56")) %>%
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes$ensembl_gene    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) %>%
+  ggplot(aes(x = H3K27me3, y = H3K4me3, alpha = diff_gene, fill = diff_gene, colour = diff_gene, size = diff_gene)) + 
+    geom_point() +
+   scale_colour_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+  scale_fill_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+    scale_alpha_manual(values = c( "differentiation" = 1, "other" = 0.3)) +
+   scale_size_manual(values = c( "differentiation" = 1, "other" = 0.5)) +
+  theme()
+
+
+sce_agg_merged_cc_ann %>% 
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes$ensembl_gene    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) %>%
+  ggplot(aes(x = H3K27me3, y = H3K4me1,, alpha = diff_gene, fill = diff_gene, colour = diff_gene, size = avg_t50)) + 
+    geom_point() +
+   scale_colour_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+  scale_fill_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+    scale_alpha_manual(values = c( "differentiation" = 1, "other" = 0.1)) +
+      scale_size(range = c(0.01,3)) + 
+   #scale_size_manual(values = c( "differentiation" = 1, "other" = 0.5)) +
+  theme()
+
+sce_agg_merged_cc_ann %>% 
+  dplyr::mutate(data_k = as.factor(data_k)) %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene %in%  diff_genes$ensembl_gene    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) %>%
+  ggplot(aes(x = H3K4me3, y = H3K4me1,, alpha = diff_gene, fill = diff_gene, colour = diff_gene, size = avg_t50)) + 
+    geom_point() +
+   scale_colour_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+  scale_fill_manual(values = c( "differentiation" = "red", "other" = "grey")) +
+    scale_alpha_manual(values = c( "differentiation" = 1, "other" = 0.1)) +
+      scale_size(range = c(0.01,3)) + 
+   #scale_size_manual(values = c( "differentiation" = 1, "other" = 0.5)) +
+  theme()
+
+sce_agg_merged_cc_ann %>% 
+  #dplyr::filter(max_t50_avgfc_cat %in% 
+   #               c("Max_P14_P56 t50_Late 1-2 log2FC", "Max_P14_P56 t50_Late >2 log2FC", 
+  #                  "Max_P14_P56 t50_Mid 1-2 log2FC", "Max_P14_P56 t50_Mid >2 log2FC") ) %>%
+  #dplyr::mutate(max_t50_cat = factor(as.character(max_t50_cat))) %>%
+  # dplyr::mutate(max_t50_avgfc_cat = factor(max_t50_avgfc_cat, levels = levels(max_t50_avgfc_cat)[c(3,1,4,2)])) %>%
+   dplyr::mutate(avg_fc = as.numeric(Winsorize(avg_fc, minval = 1, maxval = 6))) %>%
+     dplyr::mutate(data_k = as.factor(data_k)) %>%
+  ggplot(aes(x = x, y = y, fill = data_k, colour = data_k)) + 
+    
+    geom_point( shape = 21, alpha = 0.8, size = 0.5) +
+  
+    scale_fill_manual(values = data_colors) +
+    scale_colour_manual(values = data_colors) + 
+  labs(fill = "K-means clusters", size = "Average log2 fold change") + 
+  theme()
+
+```
+
+
+Can we predict which genes will increase with differentiation?
+
+```{r, eval = FALSE}
+
+install.packages("xgboost")
+install.packages("DiagrammeR")
+
+```
+
+
+
+
+Set up the predictive data into a matrix 
+
+Starting with just the differentiation genes versus all comers
+
+```{r}
+# clarify targets 
+diff_genes <- sce_agg_merged_cc_ann %>%
+  dplyr::filter(max_cat == "P14_P56" ) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+  dplyr::select(ensembl_gene)
+
+dim(diff_genes)
+
+sce_agg_merged_cc_ann_d <-  sce_agg_merged_cc_ann %>% 
+   dplyr::mutate(target = case_when(
+      max_cat == "P14_P56" &  
+      group_1 == "Dynically expressed in granule neuron lineage" &
+      group_2 == ">2 log2FC"           ~  1,
+      TRUE                             ~  0
+  ))
+
+sce_agg_merged_cc_ann_d <-  sce_agg_merged_cc_ann_d %>% 
+   dplyr::mutate(multi_target = case_when(
+      max_cat == "P14_P56" &  
+      group_1 == "Dynically expressed in granule neuron lineage" &
+      group_2 == ">2 log2FC"           ~ 1,
+      group_1 == "Unexpressed"         ~ 2,
+      group_1 == "Unchanged expression" ~ 3,
+      TRUE                             ~ 0
+  ))
+
+table(sce_agg_merged_cc_ann_d$multi_target)
+
+
+
+
+
+
+  predictor_names <-  colnames(sce_agg_merged_cc_ann)[32:41]
+predictor_names <- c(predictor_names, "target" )
+pred_mat <- sce_agg_merged_cc_ann_d[predictor_names]
+
+
+
+```
+
+TODO: need to prune with anova 
+
+
+```{r}
+library(xgboost)
+library(caret)
+library(data.table)
+
+data = pred_mat
+
+#make this example reproducible
+set.seed(0)
+
+#split into training (80%) and testing set (20%)
+parts = createDataPartition(data$target, p = .8, list = F)
+train = data[parts, ]
+test = data[-parts, ]
+
+setDT(train) 
+setDT(test)
+
+#using one hot encoding 
+labels <- train$target
+ts_label <- test$target
+new_tr <- model.matrix(~.+0,data = train[,-c("target"),with=F]) 
+new_ts <- model.matrix(~.+0,data = test[,-c("target"),with=F])
+
+#convert factor to numeric 
+labels <- as.numeric(labels)
+ts_label <- as.numeric(ts_label)
+
+
+#preparing matrix 
+dtrain <- xgb.DMatrix(data = new_tr,label = labels) 
+dtest <- xgb.DMatrix(data = new_ts,label=ts_label)
+
+
+#default parameters
+params <- list(booster = "gbtree", objective = "binary:logistic", eta=0.3, gamma=2, max_depth=6, min_child_weight=1, subsample=1, colsample_bytree=1, scale_pos_weight = 70)
+
+
+xgbcv <- xgb.cv( params = params, data = dtrain, nrounds = 200, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stopping_rounds = 20, maximize = F)
+##best iteration = 7
+
+min(xgbcv$test.error.mean)
+
+
+#first default - model training
+xgb1 <- xgb.train (params = params, data = dtrain, nrounds = 1000, watchlist = list(val=dtest,train=dtrain), print.every.n = 10, early.stop.round = 50, maximize = F , eval_metric = "auc", nthread = 2)
+#model prediction
+xgbpred <- predict (xgb1,dtest)
+xgbpred <- ifelse (xgbpred > 0.5,1,0)
+
+library(caret)
+confusionMatrix (as.factor(xgbpred), as.factor(ts_label))
+#Accuracy - 86.54%` 
+
+#view variable importance plot
+mat <- xgb.importance (feature_names = colnames(new_tr),model = xgb1)
+xgb.plot.importance (importance_matrix = mat[1:20]) 
+#xgb.dump(xgb1, with_stats = TRUE)
+
+```
+
+```{r, eval = FALSE}
+
+install.packages("ISLR")
+install.packages("doParallel")
+install.packages("class")
+
+
+```
+
+
+```{r}
+# Attach Packages
+library(tidyverse)    # data manipulation and visualization
+library(kernlab)      # SVM methodology
+library(e1071)        # SVM methodology
+library(ISLR)         # contains example data set "Khan"
+library(RColorBrewer) # customized coloring of plots
+library(doParallel)
+
+# construct larger random data set
+x <- matrix(rnorm(200*2), ncol = 2)
+x[1:100,] <- x[1:100,] + 2.5
+x[101:150,] <- x[101:150,] - 2.5
+y <- c(rep(1,150), rep(2,50))
+dat <- data.frame(x=x,y=as.factor(y))
+
+# Plot data
+ggplot(data = dat, aes(x = x.2, y = x.1, color = y, shape = y)) + 
+  geom_point(size = 2) +
+  scale_color_manual(values=c("#000000", "#FF0000")) +
+  theme(legend.position = "none")
+
+# set pseudorandom number generator
+set.seed(123)
+
+data$target <- as.factor(data$target)
+
+# sample training data and fit model
+svmfit <- svm(target ~ H3K27me3 + Ring1b ,  data = train[, c("H3K27me3", "Ring1b", "target")], kernel = "radial", gamma = 10, cost = 1)
+
+
+# plot classifier
+
+plot(svmfit, formula = H3K27me3 ~ Ring1b, data=train[, c("H3K27me3", "Ring1b", "target")])
+
+table(svmfit$fitted, train$target)
+
+ypred <- predict(svmfit, train)
+(misclass <- table(predict = ypred, truth = train$target))
+
+
+svmfit <- svm(target ~ H3K27me3 + Ring1b + H3K4me3 ,  data = train[, c("H3K27me3", "Ring1b", "H3K4me3", "target")], kernel = "radial", gamma = 1000, cost = 1)
+
+plot(svmfit, formula = H3K27me3 ~ Ring1b, data=train[, c("H3K27me3", "Ring1b", "H3K4me3" , "target")])
+
+plot(svmfit, formula = H3K27me3 ~ H3K4me3, data=train[, c("H3K27me3", "Ring1b", "H3K4me3" , "target")])
+
+
+test$target <- as.factor(test$target)
+table(svmfit$fitted, train$target)
+
+ypred <- predict(svmfit, test)
+(misclass <- table(predict = ypred, truth = test$target))
+
+confusionMatrix(ypred, test$target)
+
+
+tt <- train[,c("H3K27me3", "Ring1b", "target")]
+tt$target <- as.factor(tt$target )
+
+train$target <- as.factor(train$target)
+
+svmfit <- svm(target ~ H3K27me3 + Ring1b + H3K4me3 ,  data = train, kernel = "radial", gamma = 1, cost = 1)
+
+plot(svmfit, train, H3K27me3 ~ Ring1b)
+plot(svmfit, train, H3K27me3 ~ H3K4me3)
+
+ypred <- predict(svmfit, train)
+(misclass <- table(predict = ypred, truth = train$target))
+```
+
+
+
+
+```{r}
+
+dat <- data.frame(x = Khan$xtrain, y=as.factor(Khan$ytrain))
+out <- svm(y~., data = dat, kernel = "linear", cost=10)
+table(out$fitted, dat$y)
+
+```
+
+```{r}
+train_control <- trainControl(method="repeatedcv", number=3, repeats=1)
+svm1 <- train(target ~., data = tt, method = "svmLinear", trControl = train_control,  preProcess = c("center","scale"))
+#View the model
+svm1
+
+plot(svm1, tt)
+plot(svm1, tt, H3K27me3 ~ Ring1b)
+kernlab::plot(svm1$finalModel) 
+
+svm3 <- train(target ~., data = train, method = "svmRadial", trControl = train_control, preProcess = c("center","scale"), tuneLength = 10 , allowParallel = TRUE, verbose = T,num.threads = 7 )
+
+kernlab::plot(svm3$finalModel) 
+
+featurePlot(x = iris[, 1:4], 
+            y = iris$Species, 
+            plot = "ellipse",
+            ## Add a key at the top
+            auto.key = list(columns = 3))
+  
+```
+
+
+```{r}
+svm3 <- train(diabetes ~., data = pima.data, method = "svmRadial", trControl = train_control, preProcess = c("center","scale"), tuneLength = 10)
+# Print the best tuning parameter sigma and C that maximizes model accuracy
+svm3$bestTune
+kernlab::plot(svm3$finalModel) 
+pl
+#View the model
+svm3
+#save the results for later
+res3<-as_tibble(svm3$results[which.min(svm3$results[,2]),])
+res3
+
+test_pred <- predict(svm3, newdata = test)
+test_pred
+
+test_pred <- predict(svm3, newdata = test)
+test_pred
+```
+
+
+Knn 
+
+```{r}
+ library(class)
+
+# remove the target row 
+train_nolab <- train[, 1:(dim(train)[2] -1 )] 
+test_nolab <- test[, 1:(dim(test)[2] -1 )] 
+
+
+knn_test <- knn(train_nolab, test_nolab, as.factor(train$target), k = 3, prob=TRUE)
+table(knn_test)
+
+tb <- table(knn_test, as.factor(test$target))
+tb
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(tb)
+```
+
+Failing because of class imbalance, could solve this by loading multiple other categories
+
+Unexpressed
+Experssed and unchanging 
+Highest 
+
+Show the TSNE plot with the various transcriptional classes 
+
+```{r}
+
+
+```

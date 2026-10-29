@@ -1,0 +1,1081 @@
+---
+title: "RNAseq_describe_2017_10_21"
+author: "James Purzner"
+date: "10/22/2017"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Notes: there was a lot of plots looking at what delineates a gene that starts transcribing early versus late during differentiation.  If you are looking for this it is in RNAseq_features_v9.Rmd
+
+
+```{r, eval = FALSE}
+install.packages("ggfortify")
+install.packages("gdata")
+install.packages("GGally")
+install.packages("ggExtra")
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install()
+
+BiocManager::install(c("DESeq2"))
+install.packages("matrixStats")
+
+install.packages("Hmisc")
+install.packages("akima")
+install.packages("fdasrvf")
+install.packages("pavpop")
+
+
+```
+
+## Describe features of time series 
+
+```{r}
+#library(fdasrvf)
+#library(rgl)
+library(ggExtra)
+library(DESeq2)
+library(reshape2)
+library(pheatmap)
+library(stringr)
+library(DescTools)
+library(matrixStats)
+library(stringr)
+library(tidyr)
+library(dplyr)
+source('~/Dropbox/jp_seq/multi_memb_prod.R')
+source('~/Dropbox/jp_seq/memb2graph_edgeeat.R')
+source('~/Dropbox/jp_seq/edgeeat.R')
+source('~/Dropbox/jp_seq/recursive_edgeeater.R')
+source('~/Dropbox/jp_seq/plot_group_timeline.R')
+source('~/Dropbox/jp_seq/graph_cluster_plot_EBseq.R')
+source('~/Dropbox/jp_seq/binarize_counts_p.R')
+```
+
+
+## Load Scott RNAseq data 
+
+
+
+```{bash, eval = FALSE}
+nohup find . -maxdepth 5 -name 'accepted_hits.bam' | parallel 'var="$( dirname "{}" )";  htseq-count -f bam -s no -a 10 -t exon -i gene_name "{}" /tank/annotation/mm_ensembl67_filtered.gtf >   ${var}/mm_ensembl67_uniq_filtered_counts.txt' &
+
+```
+
+
+```{r load_scott_rnaseq}
+                                               
+scott_RNAseq <- 
+          read.table("~/Dropbox/GNP_MB_integrate/tss_model/Scott_RNAseq_tss_model_uniq_htseq_counts.txt",
+          sep ="\t", 
+          header = TRUE, 
+          row.names = 1)
+
+# strange extra column 
+scott_RNAseq$X <- NULL
+
+str_count(colnames(scott_RNAseq), "[.]")
+
+
+colnames(scott_RNAseq) <- matrix(unlist(strsplit(colnames(scott_RNAseq), "[.]")), ncol = 3, byrow = TRUE)[,2]
+
+scott_time_datasets <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/table_2017_12_11/time_series_name.txt", 
+                                  sep = "\t", header = FALSE)
+scott_time_datasets <- gsub(".*[.]","",scott_time_datasets$V1)
+
+
+
+
+#remove the htseq tail
+scott_htseq_tail <- scott_RNAseq[(dim(scott_RNAseq)[1]-4):(dim(scott_RNAseq)[1]),] 
+scott_RNAseq <- scott_RNAseq[1:(dim(scott_RNAseq)[1]-5),]
+pheatmap(cor(scott_RNAseq, method = "spearman" ))
+
+scott_GNP<- scott_RNAseq[,colnames(scott_RNAseq) %in% scott_time_datasets]
+scott_GNP <- scott_GNP[,match(scott_time_datasets, colnames(scott_GNP))]
+
+
+scott_GNP_meta <- c("E15","E15","E15", "P1", "P1", "P7", "P7", "P7", "P14", "P14", "P14")
+scott_GNP_meta <- factor(scott_GNP_meta, levels = c("E15", "P1", "P7", "P14"))
+
+
+```
+
+```{r rnaseq_rlog, fig.width= 5, fig.heigh = 5}
+library(ggplot2)
+scott_GNP <- as.matrix(scott_GNP)
+colData <- data.frame(cols = colnames(scott_GNP), condition = scott_GNP_meta)
+dds <- DESeqDataSetFromMatrix(countData = scott_GNP, colData = colData, design = ~ condition)
+dds <- estimateSizeFactors(dds)
+dds <- estimateDispersions(dds)
+
+scott_GNP_counts <- counts(dds, normalized = TRUE)
+
+hist(log10(rowMax(scott_GNP_counts)+1), breaks = 100)
+
+
+pheatmap(cor(scott_GNP_counts))
+pheatmap(cor(scott_GNP_counts, method = "spearman"))
+dim(scott_GNP_counts)
+
+
+```
+
+Test for significance 
+P1-P14
+E15-P7
+```{r}
+library(stringr)
+# filter low expressed genes
+read_cutoff = 5
+idx <- rowSums( counts(dds, normalized=TRUE) >= read_cutoff ) >= 3
+dds <- dds[idx,]
+
+dds <- DESeq(dds)
+resultsNames(dds)
+
+
+P7_P14 <- results(dds, contrast=c("condition","P7","P14"))
+colnames(P7_P14) <- str_c("P7_P14_", colnames(P7_P14))
+P1_P14 <- results(dds, contrast=c("condition","P1","P14"))
+colnames(P1_P14) <- str_c("P1_P14_", colnames(P1_P14))
+E15_P7 <- results(dds, contrast=c("condition","E15","P7"))
+colnames(E15_P7) <- str_c("E15_P7_", colnames(E15_P7))
+
+
+table(row.names(P7_P14) == row.names(P1_P14))
+scott_gnp_pval <- cbind(P7_P14, P1_P14, E15_P7)
+
+
+scott_gnp_pval$scott_gnp_min_pval <- rowMins(as.matrix(scott_gnp_pval[,grep("padj",colnames(scott_gnp_pval))]), na.rm = TRUE)
+#scott_gnp_pval <- scott_gnp_pval[,c(grep("padj",colnames(scott_gnp_pval)), ncol(scott_gnp_pval))]
+
+```
+
+
+## Load the Hatten TRAP microarray data 
+```{r}
+hatten_trap <- read.table("~/Dropbox/GNP_MB_integrate/Ezh2_2022/hatten_trap_microarray_2023_04_18.txt", sep = "\t", header  = TRUE, row.names = 1)
+hatten_trap_pval <- read.table( "~/Dropbox/GNP_MB_integrate/Ezh2_2022/hatten_trap_microarray_pval_2023_04_18.txt", sep = "\t", header  = TRUE, row.names = 1)
+
+
+#rma values are log2, will 2^x transform 
+hatten_trap <- 2^(hatten_trap)
+
+hist(log10(rowMax(as.matrix(hatten_trap))+1), breaks = 100)
+
+hatten_meta <- c("P0", "P0", "P0", "P7", "P7", "P7", "P12", "P12", "P12", "P18", "P18", "P18", "P21", "P21", "P21", "P56", "P56", "P56")
+hatten_meta <- factor(hatten_meta, levels = c("P0", "P7", "P12", "P18", "P21", "P56"))
+
+
+# summarize the p-value table
+hatten_trap_pval$hatten_trap_min_pval <- matrixStats::rowMins(as.matrix(hatten_trap_pval[,grep("adj.P.Val",colnames(hatten_trap_pval))]), na.rm = TRUE)
+#hatten_trap_pval <- hatten_trap_pval[,c(5,9,11,15,17)]
+```
+
+## Merge Scott and Hatten TRAP data 
+
+The RNAseq data uses transcript IDs which need to be converted to gene ids
+
+```{r}
+
+
+gnp_combo_anno <- read.table("~/Dropbox/GNP_MB_integrate/tss_model/GNP_tss_model_anno_2018_12_08.txt", sep = "\t", header = TRUE)
+colnames(gnp_combo_anno)[1] <- "ensembl_transcript_id"
+
+common_genes <- intersect(gnp_combo_anno$ensembl_gene_id,row.names(hatten_trap))
+table(!duplicated(gnp_combo_anno$ensembl_gene_id))
+
+
+hatten_trap <- hatten_trap[row.names(hatten_trap) %in% common_genes,]
+gnp_combo_anno <- gnp_combo_anno %>%
+  dplyr::filter(ensembl_gene_id %in% common_genes) %>%
+  dplyr::filter(!is.na(ensembl_gene_id)) %>%
+  dplyr::distinct(ensembl_gene_id, .keep_all = TRUE )
+
+dim(gnp_combo_anno)
+dim(hatten_trap)
+
+
+hatten_trap_gene_ids <- data.frame(ensembl_gene_id= row.names(hatten_trap))
+hatten_trap_gene_ids$order <- row.names(hatten_trap_gene_ids)
+
+hatten_trap_gene2tx <- hatten_trap_gene_ids  %>%
+#    dplyr::mutate(ensembl_gene_id = as.character(ensembl_gene_id)) %>%
+    dplyr::left_join(gnp_combo_anno, by = "ensembl_gene_id") %>%
+    dplyr::filter( !is.na(ensembl_transcript_id)) %>%
+    dplyr::select(ensembl_gene_id, ensembl_transcript_id, order)
+
+table(as.character(hatten_trap_gene2tx$ensembl_gene_id) == as.character(row.names(hatten_trap)))
+
+
+
+row.names(hatten_trap) <- hatten_trap_gene2tx$ensembl_transcript_id
+
+#scott_GNP_transcript_ids <- data.frame(ensembl_transcript_id= row.names(scott_GNP_counts))
+#scott_GNP_transcript_ids$order <- row.names(scott_GNP_transcript_ids)
+
+#tt <- scott_GNP_transcript_ids  %>%
+#   dplyr::left_join(gnp_combo_anno, by = "ensembl_transcript_id") 
+
+common_genes <- intersect(row.names(scott_GNP_counts),row.names(hatten_trap))
+length(common_genes)
+hatten_trap <- hatten_trap[match(common_genes, row.names(hatten_trap)),]
+scott_GNP_counts <- scott_GNP_counts[match(common_genes, row.names(scott_GNP_counts)),]
+table(row.names(hatten_trap) == row.names(scott_GNP_counts))
+
+
+
+#table(row.names(scott_GNP_counts) == gnp_combo_anno$ensembl_gene_id[match(row.names(scott_GNP_counts),  gnp_combo_anno$ensembl_gene_id)])
+
+
+#row.names(scott_GNP_counts) <- gnp_combo_anno$mgi_symbol[match(row.names(scott_GNP_counts),  gnp_combo_anno$ensembl_gene_id)]
+#row.names(hatten_trap) <- row.names(scott_GNP_counts) 
+
+
+RNAseq_list <- list(scott_GNP_counts, hatten_trap)
+meta_list <- list(scott_GNP_meta, hatten_meta)
+names(meta_list) <- c("scott_GNP", "hatten_GNP")
+
+pseudo_time <- c("E15","P0", "P1", "P7", "P12", "P14", "P18", "P21", "P56")
+```
+
+
+WORKING HERE 
+## Merge Scott and Hatten TRAP p-val tables
+```{r}
+
+gnp_combo_anno <- read.table("~/Dropbox/GNP_MB_integrate/tss_model/GNP_tss_model_anno_2018_12_08.txt", sep = "\t", header = TRUE)
+colnames(gnp_combo_anno)[1] <- "ensembl_transcript_id"
+
+scott_gnp_pval <- as_tibble(scott_gnp_pval, rownames = "ensembl_transcript_id")
+
+pval_all <- gnp_combo_anno  %>% 
+  dplyr::left_join(hatten_trap_pval, by = c("ensembl_gene_id" = "ensembl_gene_id")) %>%
+  dplyr::left_join(scott_gnp_pval, by = c("ensembl_transcript_id" = "ensembl_transcript_id"))
+
+
+
+```
+
+
+
+```{r}
+RNAseq_list <- lapply(RNAseq_list, as.matrix)
+
+# convert all remaining zeroes to lowest real value
+min_val <- min(sapply(RNAseq_list, function(x) min(x[x > 0])))
+RNAseq_list <- lapply(RNAseq_list, function(x) ifelse(x == 0, min_val, x))
+# generate row normalized log2 list
+log2_norm_list <- lapply(RNAseq_list, 
+                         function(l) log2(sweep(l,1, rowMeans(l), "/")))
+
+average_df  <- function(df, meta) {
+  df_avg <- as.data.frame(lapply(levels(meta), 
+                                     function(x) {rowMeans(df[,which(meta == x)])}))
+  colnames(df_avg) <- levels(meta)
+  return(df_avg)
+}  
+
+log2_norm_avg_list <- lapply(1:length(log2_norm_list), 
+                         function(n) average_df(log2_norm_list[[n]], meta_list[[n]]))
+
+```
+
+
+```{r lib}
+library(ggrepel)
+
+```
+
+
+## calculate diff with increasing lag 
+
+
+get highest diff1
+choose dominant direction increase / decrease by taking sum of diff1 
+find the largest change. 
+find up and down same sign in diff1 
+
+
+```{r}
+source('~/Dropbox/jp_seq/time_of_change.R')
+library(dplyr)
+
+
+toc_list <- lapply(log2_norm_avg_list, time_of_change)
+
+
+
+#table(toc_list[[1]]$max.i, toc_list[[2]]$max.i)
+table(toc_list[[1]]$max.i,toc_list[[1]]$inc.start )
+
+# for simplicity join data frames into 1  
+toc <- Reduce(function(dtf1,dtf2) full_join(dtf1 %>% mutate(Symbol = rownames(dtf1)),
+                                             dtf2 %>% mutate(Symbol = rownames(dtf2)),
+                                             by="Symbol", suffix = c(".Scott", ".Hatten")), 
+               toc_list)
+dim(toc)
+
+toc_2FCany <- subset(toc, change.total.Scott > 1 | change.total.Hatten > 1 )
+row.names(toc_2FCany) <- toc_2FCany$Symbol
+
+dim(toc_2FCany)
+
+toc_2FCany_span <- subset(toc, inc.span.total.Scott > 1 | inc.span.total.Hatten > 1 )
+row.names(toc_2FCany_span) <- toc_2FCany_span$Symbol
+dim(toc_2FCany_span)
+```
+
+Get an idea of the overall group sizes
+```{r}
+library(ggplot2)
+library(pheatmap)
+library(GGally)
+library(stringr)
+
+ggplot(toc_2FCany, aes(inc.start.Scott, inc.start.Hatten)) + stat_bin2d()
+
+inc_start_max <- toc_2FCany[, c( "inc.start.Scott","inc.start.Hatten","max.i.Scott", "max.i.Hatten" ) ]
+# concatenate variables 
+tmp <- apply(toc_2FCany[, c( "inc.start.Scott","inc.start.Hatten","max.i.Scott", "max.i.Hatten" ) ],
+      1, paste, collapse="_")
+
+
+toc_2FCany$inc_start_max <- tmp 
+
+table(toc_2FCany$inc_start_max)
+dim(table(toc_2FCany$inc_start_max))
+
+pheatmap(inc_start_max, show_rownames = FALSE)
+
+inc_start_max_groups <-  table(inc_start_max)
+
+```
+
+
+
+## T50 measurement
+try to interpolate and calculate time at 50 % max.  single gene code  
+```{r}
+#library(Hmisc)
+library(akima)
+#library(fdasrvf)
+library(reshape2)
+library(stringr)
+
+scott <- log2_norm_avg_list[[1]][1,]
+hatten <- log2_norm_avg_list[[2]][1,]
+
+time_ref  <- data.frame( time = c(str_c("E", c(15:20)), str_c("P", c(0:56)))) 
+
+time_ref$scott <- time_ref$time %in% c("E15", "P1", "P7", "P14")
+time_ref$hatten <- time_ref$time %in% c("P0","P7","P12","P18","P21","P56")
+ 
+scott_ap <- approx(x =which(time_ref$scott), y = log2_norm_avg_list[[1]][1,], xout = c(1:dim(time_ref)[1]))
+hatten_ap <- approx(x =which(time_ref$hatten), y = log2_norm_avg_list[[2]][1,], xout = c(1:dim(time_ref)[1]))
+
+# use the intervening points to set the baseline value for the second data 
+ds_ov <- data.frame(time = c(1: length(scott_ap$y[!(is.na(scott_ap$y) | is.na(hatten_ap$y))])),
+                    scott = scott_ap$y[!(is.na(scott_ap$y) | is.na(hatten_ap$y))], 
+                    hatten = hatten_ap$y[!(is.na(scott_ap$y) | is.na(hatten_ap$y))])
+
+ds_ov$hatten_mod <-ds_ov$hatten  + (median(ds_ov$scott - ds_ov$hatten))
+ds_ov_m <- melt(ds_ov, id.vars = "time") 
+ggplot(ds_ov_m, aes(x = time, y = value, group = variable, colour = variable)) + geom_line()
+
+
+ap <- data.frame(i = c(1:dim(time_ref)[1]), time = time_ref$time,  scott = scott_ap$y, hatten = hatten_ap$y )
+ap$hatten <- ap$hatten +  (median(ds_ov$scott - ds_ov$hatten))
+# now that time series aligned find the common minimum and maximum 
+all_min <- min(min(ap$scott, na.rm = TRUE), min(ap$hatten_mod, na.rm = TRUE) )
+all_max <- max(max(ap$scott, na.rm = TRUE), max(ap$hatten_mod, na.rm = TRUE))
+
+# shift the data centered upon zero 
+ap[,3:ncol(ap)] <- ap[,3:ncol(ap)]  - ((all_max - all_min) / 2)
+ap$avg <- apply(ap[,3:ncol(ap)], 1, function(x) mean(x, na.rm = TRUE))
+
+# calculate using avg and other datasets 
+y0 <- data.frame(y0_avg = min(approx(x = ap$avg, y = ap$i, xout = 0)$y, max(which(!is.na(ap$scott))), na.rm = TRUE), 
+            y0_hatten = min(approx(x = ap$hatten, y = ap$i, xout = 0)$y, max(which(!is.na(ap$scott))), na.rm = TRUE), 
+            y0_scott = min(approx(x = ap$scott, y = ap$i, xout = 0)$y, max(which(!is.na(ap$scott))), na.rm = TRUE))
+row.names(y0) <- "y0"
+y0 <- t(y0)
+y0 <- as.data.frame(y0)
+
+ap_m <- melt(ap, id.vars = c("time", "i")) 
+
+ggplot(ap_m, aes(x = i, y = value, group = variable, colour = variable)) + geom_line() + 
+  geom_vline(data = y0, aes(xintercept = y0) )
+
+
+```
+
+on all genes 
+
+```{r, fig.height= 8, fig.width= 8, warning = FALSE}
+
+source('~/Dropbox/jp_seq/time_expr_interp.R')
+source('~/Dropbox/jp_seq/time_expr_align.R')
+source('~/Dropbox/jp_seq/time_expr_avg.R')
+source('~/Dropbox/jp_seq/expr_half_max.R')
+source("~/Dropbox/jp_seq/expr_half_max_min.R")
+
+row.names(time_ref) <- time_ref$time
+time_ref$time <- NULL
+
+log2_norm_avg_list_interp <- time_expr_interp( log2_norm_avg_list, time_ref)
+log2_norm_avg_list_interp_align <- time_expr_align(log2_norm_avg_list_interp)
+
+# shift the uninterpolated data
+shift <- time_expr_align(log2_norm_avg_list_interp, return_shift = TRUE)
+
+
+log2_norm_avg_list_shift <-  lapply(c(1:length(log2_norm_avg_list)), function(i) (log2_norm_avg_list[[i]] + shift[,i]))
+log2_norm_list_shift <-  lapply(c(1:length(log2_norm_list)), function(i) (log2_norm_list[[i]] + shift[,i]))
+
+log2_norm_avg_list_interp_align_avg <- time_expr_avg(log2_norm_avg_list_interp_align)
+
+
+
+total_change <- sapply(log2_norm_avg_list_interp_align, function (j)  apply(j, 1, function(i) max(i, na.rm = TRUE))  - apply(j, 1, function(i) min(i, na.rm = TRUE)))
+total_change_avg <-  apply(log2_norm_avg_list_interp_align_avg, 1, function(i) max(i, na.rm = TRUE))  - apply(log2_norm_avg_list_interp_align_avg, 1, function(i) min(i, na.rm = TRUE))
+
+total_change_direction <-  sapply(log2_norm_avg_list_interp_align, function (j)  ifelse(apply(j, 1, function(i) which.max(i))  > apply(j, 1, function(i) which.min(i)), 1, -1))
+total_change_direction_avg <- ifelse((apply(log2_norm_avg_list_interp_align_avg, 1, function(i) which.max(i))  > apply(log2_norm_avg_list_interp_align_avg, 1, function(i) which.min(i))), 1, -1)
+
+
+max_interp <- sapply(log2_norm_avg_list_interp_align, function (j)  apply(j, 1, function(i) which.max(i))) 
+max_interp_avg <- apply(log2_norm_avg_list_interp_align_avg, 1, function(i) which.max(i)) 
+min_interp <- sapply(log2_norm_avg_list_interp_align, function (j)  apply(j, 1, function(i) which.min(i))) 
+min_interp_avg <- apply(log2_norm_avg_list_interp_align_avg, 1, function(i) which.min(i)) 
+
+total_change <- cbind(total_change,total_change_avg)
+colnames(total_change) <- c("scott_fc", "hatten_fc", "avg_fc") 
+
+total_change_direction <- cbind(total_change_direction, total_change_direction_avg)
+colnames(total_change_direction) <- c("scott_dir", "hatten_dir", "avg_dir") 
+
+max_min_interp <- cbind(min_interp, min_interp_avg, max_interp, max_interp_avg)
+colnames(max_min_interp) <- c("scott_min", "hatten_min", "avg_min", "scott_max", "hatten_max", "avg_max") 
+
+expr <- as.data.frame(expr_half_max(log2_norm_avg_list_interp_align))
+expr$avg <- expr_half_max(log2_norm_avg_list_interp_align_avg)
+
+
+t50_up_down <-  expr_half_max_min(log2_norm_avg_list_interp_align_avg)
+
+ 
+colnames(expr) <- c("scott_t50", "hatten_t50", "avg_t50") 
+expr <- cbind(expr, total_change, total_change_direction, max_min_interp)
+
+row.names(toc) <- toc$Symbol
+table(row.names(toc) == row.names(expr))
+
+
+
+
+```
+
+
+```{r}
+toc_t50 <- cbind(toc, expr)
+time_points <- which(rowSums(time_ref) > 0)
+time_points <- time_points[!names(time_points) %in% c("P0", "P12")]
+
+toc_t50 <- as_tibble(toc_t50, rownames = "ensembl_transcript_id")
+
+toc_t50 <- pval_all %>% left_join(toc_t50,   by = c("ensembl_transcript_id" = "ensembl_transcript_id")) 
+
+
+head(toc_t50)
+```
+
+
+
+```{r}
+dim(toc_t50)
+ggplot(as.data.frame(toc_t50), aes(x = avg_t50, y = avg_fc*avg_dir)) + geom_point(size = 0.5)
+
+```
+## PROBLEM HERE##
+
+Remove the low expressed genes 
+
+```{r, fig.width= 5, fig.height= 5}
+
+toc_t50$ensembl_exon_length <- sapply(strsplit(as.character(toc_t50$ensembl_blockSizes), ","), function (x) sum(as.numeric(x)) )
+
+exon_length <- data.frame(ensembl_transcript_id = gnp_combo_anno$ensembl_name, ensembl_exon_length = gnp_combo_anno$ensembl_exon_length) 
+
+
+max_expr_Scott <- apply(scott_GNP_counts,1,function (x) mean(sort(x, decreasing = TRUE)[1:3]))
+max_expr_Hatten <- apply(hatten_trap,1,function (x) mean(sort(x, decreasing = TRUE)[1:3]))
+
+max_expr <- cbind(max_expr_Scott, max_expr_Hatten)
+
+max_expr <- as_tibble(max_expr, rownames = "ensembl_transcript_id")
+
+toc_t50 <- toc_t50 %>% left_join(max_expr,   by = c("ensembl_transcript_id" = "ensembl_transcript_id")) 
+
+```
+
+Plot comparing Scott and Hatten data max transcript
+
+```{r}
+#hist(log10((toc_t50$max_expr_Scott*1000 /toc_t50$length )+ 1 ), breaks = 100)
+
+p <- ggplot(toc_t50, aes(x =log10(max_expr_Scott*1000/ensembl_exon_length), y = log10(max_expr_Hatten + 1))) + 
+  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+p <- ggExtra::ggMarginal(p, type = "histogram")
+
+plot(p)
+
+
+table(toc_t50$max_expr_Hatten > 100, toc_t50$max_expr_Scott > 100)
+table(toc_t50$max_expr_Hatten > 50, toc_t50$max_expr_Scott*1000/toc_t50$ensembl_exon_length > 50)
+table(toc_t50$max_expr_Hatten > 10, toc_t50$max_expr_Scott > 10)
+
+```
+
+```{r}
+toc_t50$max_expr_Scott <- toc_t50$max_expr_Scott*1000/toc_t50$ensembl_exon_length
+
+
+#p <- ggplot(toc_t50, aes(x =log10(max_expr_Scott +1), y = log10(max_expr_Hatten + 1))) + 
+#  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+#p <- ggExtra::ggMarginal(p, type = "histogram")
+
+#plot(p)
+```
+
+
+Have accumulated duplicates within the ensembl_transcript_id 
+
+```{r}
+toc_t50 <- toc_t50 %>%
+  dplyr::distinct(ensembl_transcript_id, .keep_all = TRUE)
+
+table(duplicated(toc_t50$ensembl_transcript_id))
+
+```
+
+Need to select expression threshold. Binarize the data. 
+```{r}
+source("~/Dropbox/jp_seq/binarize_counts.R")
+source("~/Dropbox/jp_seq/wins_norm_histones.R")
+source("~/Dropbox/jp_seq/soften_zero.R")
+```
+
+
+```{r}
+scott_max_expr_nona <- toc_t50 %>%
+  drop_na(max_expr_Scott) %>%
+  dplyr::mutate(max_expr_Scott_l = max_expr_Scott*1000/ensembl_exon_length ) %>%
+  dplyr::select(ensembl_transcript_id, max_expr_Scott_l)
+
+scott_max_expr_nona <- as.data.frame(scott_max_expr_nona)
+row.names(scott_max_expr_nona) <- scott_max_expr_nona$ensembl_transcript_id
+scott_max_expr_nona$ensembl_transcript_id <- NULL
+
+scott_max_expr_nona$max_expr_Scott_l <- log10(scott_max_expr_nona$max_expr_Scott_l + 1)
+
+scott_max_expr_nona <- wins_norm_histones(scott_max_expr_nona, low = 0, high = 20)
+hist(scott_max_expr_nona$max_expr_Scott_l, breaks = 100)
+
+```
+There is code to troubleshoot the gamma mixture model in version 2 of this document
+```{r, eval = FALSE}
+
+scott_max_expr_cuttoff_p <- binarize_counts_p(scott_max_expr_nona$max_expr_Scott_l, exclude_extreme = FALSE, return_all = FALSE)
+
+scott_max_expr_cuttoff <- cbind(scott_max_expr_nona, scott_max_expr_cuttoff_p)
+colnames(scott_max_expr_cuttoff) <- str_c("Scott_max_expr_", colnames(scott_max_expr_cuttoff))
+
+
+
+```
+
+
+```{r}
+
+hatten_max_expr_nona <- toc_t50 %>%
+  drop_na(max_expr_Hatten) %>%
+  dplyr::select(ensembl_transcript_id, max_expr_Hatten)
+
+hatten_max_expr_nona <- as.data.frame(hatten_max_expr_nona)
+row.names(hatten_max_expr_nona) <- hatten_max_expr_nona$ensembl_transcript_id
+hatten_max_expr_nona$ensembl_transcript_id <- NULL
+
+hatten_max_expr_nona$max_expr_Hatten <- log10(hatten_max_expr_nona$max_expr_Hatten + 1)
+
+hatten_max_expr_nona <- wins_norm_histones(hatten_max_expr_nona, low = 100, high = 50)
+hist(hatten_max_expr_nona$max_expr_Hatten, breaks = 100)
+
+hatten_max_expr_cuttoff <- binarize_counts(hatten_max_expr_nona$max_expr_Hatten, exclude_extreme = FALSE, mu= c(0.3, 0.7))
+table(hatten_max_expr_cuttoff$bin)
+
+colnames(hatten_max_expr_cuttoff) <- str_c("Hatten_max_expr_", colnames(hatten_max_expr_cuttoff))
+
+
+
+hatten_max_expr_cuttoff <- cbind(hatten_max_expr_nona, hatten_max_expr_cuttoff)
+
+
+expr_cutoff <- 100
+p_val_cutoff <- 0.001
+```
+
+
+```{r}
+expr_bin <- cbind(scott_max_expr_cuttoff, hatten_max_expr_cuttoff)
+
+expr_bin <- as_tibble(expr_bin, rownames = "ensembl_transcript_id")
+
+expr_bin <- expr_bin %>%
+  dplyr::select(ensembl_transcript_id, Scott_max_expr_counts, Scott_max_expr_bin, Hatten_max_expr_counts, Hatten_max_expr_bin)
+  
+
+toc_t50 <- toc_t50 %>%
+  dplyr::left_join(expr_bin, by = c("ensembl_transcript_id" = "ensembl_transcript_id"))
+
+#%>%
+#  tidyr::replace_na(list(Scott_max_expr_bin = 0, Hatten_max_expr_bin = 0, Scott_max_expr_counts = 0, Hatten_max_expr_counts = 0))
+
+```
+
+
+## K-means clustering with diff1
+
+
+```{r diff1, fig.height= 6, fig.width= 6}
+library(DescTools)
+library(pheatmap)
+diff1_scott <- t(diff(t(as.matrix(log2_norm_avg_list[[1]])), lag = 1))
+colnames(diff1_scott) <- str_c("Scott_", colnames(diff1_scott))
+diff1_hatten <- t(diff(t(as.matrix(log2_norm_avg_list[[2]])), lag = 1))
+colnames(diff1_hatten) <- str_c("Hatten_", colnames(diff1_hatten))
+
+diff1_all <- cbind(diff1_scott, diff1_hatten)
+
+```
+
+
+# Summarize all data in a single table 
+
+Groups: 
+1. unexpressed
+2. stabily expressed 
+3. changing
+  A: time of maximum 
+
+```{r}
+toc_t50$expr <- (toc_t50$Scott_max_expr_bin == 1) | (toc_t50$Hatten_max_expr_bin == 1)
+toc_t50_expr <- toc_t50[toc_t50$expr,]
+table(toc_t50$expr)
+
+```
+
+
+
+```{r}
+p <- ggplot(toc_t50, aes(x =log10(max_expr_Scott*1000/ensembl_exon_length), y = log10(max_expr_Hatten + 1), colour = as.factor(expr))) + 
+  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+p <- ggExtra::ggMarginal(p, type = "histogram")
+
+plot(p)
+
+
+```
+```{r}
+
+
+p <- ggplot(toc_t50, aes(x = Scott_max_expr_counts, y = Hatten_max_expr_counts, colour = as.factor(expr))) + 
+  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+p <- ggExtra::ggMarginal(p, type = "histogram")
+
+plot(p)
+
+
+```
+
+```{r}
+ggplot(toc_t50, aes(x = Scott_max_expr_counts, y = Hatten_max_expr_counts, colour = as.factor(expr))) + 
+  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+```
+
+
+Select the maximum groups 
+
+```{r}
+
+
+max_table <- table(toc_t50_expr$avg_max)
+max_table
+plot(max_table)
+
+table(toc_t50_expr$avg_min, toc_t50_expr$avg_max)
+
+pheatmap(table(toc_t50_expr$avg_min, toc_t50_expr$avg_max), cluster_rows = FALSE, cluster_cols = FALSE, labels_row = names(time_points), labels_col = names(time_points))
+
+```
+
+
+Add the maximum value category 
+```{r}
+toc_t50$max_cat <- cut(toc_t50$avg_max, c(0,2,22,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+table(toc_t50$max_cat, toc_t50$expr)
+```
+
+Plot t50 by fc with different max groups 
+```{r}
+ggplot(subset(toc_t50, expr & avg_fc > 1.5) , aes(x = Winsorize(avg_t50, maxval = 30), y = avg_fc*avg_dir)) + 
+  geom_point(size = 0.2) +
+  facet_wrap(~max_cat)
+```
+
+
+```{r}
+
+toc_t50$max_cat <- cut(toc_t50$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+toc_t50$t50_cat <- cut(toc_t50$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+
+toc_t50$max_t50_cat <- str_c("Max_",toc_t50$max_cat, " ","t50_", toc_t50$t50_cat )
+
+
+```
+
+
+
+Add expression false as factor for max_cat 
+```{r}
+
+
+toc_t50$max_cat <- as.character(toc_t50$max_cat)
+toc_t50$max_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_t50_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_cat), "unexpressed")
+toc_t50$max_t50_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_t50_cat), "unexpressed")
+toc_t50$max_cat <- as.factor(toc_t50$max_cat)
+toc_t50$max_t50_cat <- as.factor(toc_t50$max_t50_cat)
+
+table(toc_t50$max_cat)
+table(toc_t50$max_t50_cat)
+table(is.na(toc_t50$max_t50_cat))
+
+#hist(toc_t50$max_expr_Hatten[is.na(toc_t50$max_t50_cat)])
+head(toc_t50[is.na(toc_t50$max_t50_cat),])
+
+# set the missing genes to unexpressed 
+#toc_t50$max_t50_cat[is.na(toc_t50$max_t50_cat)] <-  "unexpressed"
+
+```
+
+Add expression false as factor for max_cat 
+```{r}
+
+
+toc_t50$max_cat <- as.character(toc_t50$max_cat)
+toc_t50$max_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_t50_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_cat), "unexpressed")
+toc_t50$max_t50_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_t50_cat), "unexpressed")
+toc_t50$max_cat <- as.factor(toc_t50$max_cat)
+toc_t50$max_t50_cat <- as.factor(toc_t50$max_t50_cat)
+
+table(toc_t50$max_cat)
+table(toc_t50$max_t50_cat)
+table(is.na(toc_t50$max_t50_cat))
+
+#hist(toc_t50$max_expr_Hatten[is.na(toc_t50$max_t50_cat)])
+#head(toc_t50[is.na(toc_t50$max_t50_cat),])
+
+# set the missing genes to unexpressed 
+toc_t50$max_t50_cat[is.na(toc_t50$max_t50_cat)] <-  "unexpressed"
+
+```
+
+
+```{r}
+
+
+toc_t50 %>%
+  dplyr::filter(max_cat == "P14_P56" & avg_fc > 1) %>%
+ggplot(aes(Winsorize(avg_t50, maxval = 30))) + 
+         geom_histogram(bins = 250) + 
+        geom_vline(xintercept=7) + 
+        geom_vline(xintercept=6) + 
+        geom_vline(xintercept=5) 
+
+
+
+
+```
+
+
+
+
+
+```{r, fig.height= 4, fig.width=4, eval = FALSE}
+
+max_t50_cat_2 <- toc_t50 %>% 
+  dplyr::filter(avg_fc >= 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>% 
+  dplyr::select(max_t50_cat) 
+
+symbol_filt_2 <- toc_t50 %>%
+  dplyr::filter(avg_fc >= 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>%  
+  dplyr::select(Symbol)
+
+max_t50_cat_n_2 <- max_t50_cat_2$max_t50_cat
+
+max_t50_cat_1 <- toc_t50 %>% 
+  dplyr::filter(avg_fc < 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>% 
+  dplyr::select(max_t50_cat) 
+
+symbol_filt_1 <- toc_t50 %>%
+  dplyr::filter(avg_fc < 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>% 
+  dplyr::select(Symbol)
+
+max_t50_cat_n_1 <- max_t50_cat_1$max_t50_cat
+
+
+max_t50_cat_n_1 <- str_c (max_t50_cat_n_1, " 1-2 log2FC")
+max_t50_cat_n_2 <- str_c (max_t50_cat_n_2, " >2 log2FC")
+names(max_t50_cat_n_1) <- symbol_filt_1$Symbol
+names(max_t50_cat_n_2) <- symbol_filt_2$Symbol
+
+max_t50_P14_P56 <- c(max_t50_cat_n_1, max_t50_cat_n_2)
+
+plot_group_timeline(log2_norm_list_shift, meta_list, as.factor(max_t50_P14_P56) , p_time = pseudo_time, ylimits = c(-3,3))
+```
+
+
+# How many genes increase with differentiation
+
+```{r}
+library(parallel)
+library(GGally)
+table(toc_t50[toc_t50$avg_fc >= 1 | (toc_t50$hatten_trap_min_pval <= p_val_cutoff & toc_t50$scott_gnp_min_pval <=  p_val_cutoff),"max_t50_cat"])
+
+
+# Calculate the number of cores
+no_cores <- detectCores() - 1
+ 
+# Initiate cluster
+cl <- makeCluster(no_cores)
+
+group_genes_txchange <- function (df, fc_cutoff, p_val_cutoff, expr_scott_cutoff, expr_hatten_cutoff, 
+                                  table_only = FALSE, pval_both = FALSE) {
+  new_df <- df
+  new_df$max_cat <- cut(df$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+  new_df$t50_cat <- cut(df$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+  new_df$max_t50_cat <- str_c("Max_",new_df$max_cat, " ","t50_", new_df$t50_cat )
+  new_df$max_cat <- factor(new_df$max_cat)
+  new_df$max_t50_cat <- factor(new_df$max_t50_cat)
+  # preset the factor levels so that table does miss the levels
+  new_df$max_cat <- factor(new_df$max_cat, levels = c(levels(new_df$max_cat), "unchanged", "unexpressed"))
+  new_df$max_t50_cat <- factor(new_df$max_t50_cat, levels = c(levels(new_df$max_t50_cat), "unchanged", "unexpressed"))
+  
+  # modify the groups based upon fc and pval 
+  if (pval_both) {
+  new_df$max_cat[df$avg_fc < fc_cutoff |  
+                   (df$hatten_trap_min_pval > p_val_cutoff | 
+                      df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+  
+  new_df$max_t50_cat[df$avg_fc < fc_cutoff |  
+                       (df$hatten_trap_min_pval > p_val_cutoff | 
+                          df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+  } else {
+  new_df$max_cat[df$avg_fc < fc_cutoff |  
+                   (df$hatten_trap_min_pval > p_val_cutoff & 
+                      df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+  
+  new_df$max_t50_cat[df$avg_fc < fc_cutoff |  
+                       (df$hatten_trap_min_pval > p_val_cutoff & 
+                          df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged"   
+    
+  }
+  
+  new_df$max_cat[df$max_expr_Scott < expr_scott_cutoff & df$max_expr_Hatten < expr_hatten_cutoff] <-  "unexpressed"
+  new_df$max_t50_cat[df$max_expr_Scott < expr_scott_cutoff & df$max_expr_Hatten < expr_hatten_cutoff] <- "unexpressed"
+  
+
+  if (table_only) {
+    cat_tab <- tabulate(new_df$max_t50_cat, nbins = 11)
+    cat_tab <- as.vector(cat_tab)
+    names(cat_tab) <- levels(new_df$max_t50_cat)
+    return(cat_tab)
+  } else {
+    return(new_df)
+  }
+}
+  
+group_genes_txchange(toc_t50, 1, p_val_cutoff, 100, 100, table_only = TRUE) 
+group_genes_txchange(toc_t50, 1.5, p_val_cutoff, 100, 100, table_only = TRUE) 
+group_genes_txchange(toc_t50, 2, p_val_cutoff, 100, 100, table_only = TRUE) 
+
+group_genes_txchange(toc_t50, 1, p_val_cutoff, 100, 100, table_only = TRUE, pval_both = TRUE) 
+group_genes_txchange(toc_t50, 1.5, p_val_cutoff, 100, 100, table_only = TRUE, pval_both = TRUE)  
+group_genes_txchange(toc_t50, 2, p_val_cutoff, 100, 100, table_only = TRUE, pval_both = TRUE)  
+
+gene_num_param <- expand.grid(fc = seq(from = 1, to = 10, by = 1), 
+                              p_val_cutoff = c(10^(-2:-10)), 
+                              expr_scott_cutoff =  seq(from = 0, to = 300, by = 50),  
+                              expr_hatten_cutoff = seq(from = 0, to = 300, by = 50))
+
+gene_num <- mcmapply(function(fc_cut, p_val_cut, expr_scott_cut, expr_hatten_cut) group_genes_txchange(toc_t50, fc_cut, p_val_cut, expr_scott_cut, expr_hatten_cut, table_only = TRUE), gene_num_param$fc, gene_num_param$p_val_cutoff, gene_num_param$expr_scott_cutoff, gene_num_param$expr_hatten_cutoff,  mc.cores = 6)
+
+gene_num <- t(gene_num)
+
+max_late_t50_mid <- gene_num_param
+gene_num <- as.data.frame(gene_num)
+max_late_t50_mid$gene_num <- gene_num$`Max_P14_P56 t50_Late` + gene_num$`Max_P14_P56 t50_Mid`
+```
+
+```{r}
+
+ggplot(subset(max_late_t50_mid,  expr_scott_cutoff == 100 & expr_hatten_cutoff == 100), 
+       aes(x = fc, y = gene_num, group = p_val_cutoff, colour = as.factor(p_val_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc) )) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,  expr_scott_cutoff == 100 & expr_hatten_cutoff == 100 & fc == min(fc)),
+    aes(label = p_val_cutoff, colour = as.factor(p_val_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+
+ggplot(subset(max_late_t50_mid,  p_val_cutoff == 0.001  & expr_hatten_cutoff == 100), 
+       aes(x = fc, y = gene_num, group =  expr_scott_cutoff, colour = as.factor( expr_scott_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc))) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,   p_val_cutoff == 0.001  & expr_hatten_cutoff == 100 & fc == min(fc)),
+    aes(label = expr_scott_cutoff, colour = as.factor(expr_scott_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+ggplot(subset(max_late_t50_mid,  p_val_cutoff == 0.001  & expr_scott_cutoff == 100), 
+       aes(x = fc, y = gene_num, group =  expr_hatten_cutoff, colour = as.factor( expr_hatten_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc))) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,   p_val_cutoff == 0.001  & expr_scott_cutoff == 100 & fc == min(fc)),
+    aes(label = expr_hatten_cutoff, colour = as.factor(expr_hatten_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+
+ggplot(subset(max_late_t50_mid,  p_val_cutoff == 0.01  & expr_scott_cutoff == 100), 
+       aes(x = fc, y = gene_num, group =  expr_hatten_cutoff, colour = as.factor( expr_hatten_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc))) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,   p_val_cutoff == 0.001  & expr_scott_cutoff == 100 & fc == min(fc)),
+    aes(label = expr_hatten_cutoff, colour = as.factor(expr_hatten_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+
+
+```
+
+
+
+
+
+```{r, fig.height= 5, fig.width= 5}
+toc_t50 %>%
+  dplyr::filter(avg_fc > 2) %>%
+  dplyr::filter(!(max_t50_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(avg_t50 =  t50_to_compressed(avg_t50, time_ref)) %>% 
+  dplyr::mutate(avg_max =  t50_to_compressed(avg_max, time_ref)) %>% 
+    
+  ggplot(aes(x = avg_max, y = avg_t50, size = avg_fc)) + 
+  geom_jitter()
+  
+
+
+toc_t50 %>%
+  dplyr::filter(avg_fc > 2) %>%
+  dplyr::filter(!(max_t50_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(avg_t50 =  t50_to_compressed(avg_t50, time_ref)) %>% 
+  dplyr::mutate(avg_max =  t50_to_compressed(avg_max, time_ref)) %>% 
+    
+  ggplot(aes(y = avg_fc, x = avg_t50)) + 
+  geom_point() + 
+  facet_wrap(~avg_max)
+          
+
+
+```
+Add the cat_avg_fc category 
+```{r}
+
+toc_t50 <- toc_t50 %>% 
+  dplyr::mutate(cat_avg_fc = case_when(  
+    avg_fc < 1                ~  "0-1 log2FC",
+    avg_fc >=1 & avg_fc < 2   ~  "1-2 log2FC", 
+    avg_fc >= 2               ~  ">2 log2FC"     
+    ))
+
+
+```
+
+
+# Final checking of the toc_t50 table
+
+
+```{r}
+
+dim(toc_t50)
+table(is.na(toc_t50$ensembl_gene_id))
+
+
+
+```
+
+
+
+# Save data
+```{r, eval = FALSE}
+write.table(toc_t50, "~/Dropbox/GNP_MB_integrate/Ezh2_2022/toc_t50_2023_05_17.txt", sep = "\t", row.names = TRUE, col.names = TRUE)
+save(log2_norm_list_shift, file = "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/log2_norm_list_2018_07_05.RData")
+```
+
+

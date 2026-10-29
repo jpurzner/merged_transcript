@@ -1,0 +1,926 @@
+---
+title: "3_gene_exclusion_classification"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Load data 
+- Transcript time course 
+- scRNAseq data 
+
+Goals
+- Labels the excluded genes 
+- Classifies genes based on expression pattern 
+- Establishes 
+
+
+Load the transcript time course data 
+
+```{r, load_toc_t50}
+
+
+
+```
+
+Load the scRNAseq data 
+
+```{r load_scRNAseq}
+sce_agg_merged_cc_ann <- read.table(file = "~/Dropbox/GNP_MB_integrate/MT_scRNAseq/sce_contaminant_full.txt", 
+                  header= TRUE,
+                sep = "\t")
+
+```
+
+What order do you want to screen genes 
+Step 1: Remove unexpressed genes 
+Step 2: Remove genes that are expressed but are contaminant 
+Step 3: Remove genes that are not changing 
+Step 4: Split genes by max time 
+Step 5: Statistical testing of each group
+E15 DE  E15-P7 S 
+P0-7   E15-P7 S AND P7-P14 S AND P7-P21 H 
+P14-56  P7-P14 S AND P7-P21 S AND P7-P21 H  
+Minimal FC cutoff for each 
+
+
+STEP 1 
+
+select 
+
+
+```{r}
+p <- ggplot(toc_t50, aes(x =log10(max_expr_Scott*1000/ensembl_exon_length), y = log10(max_expr_Hatten + 1), colour = as.factor(expr))) + 
+  geom_point(size = 0.5, alpha = 0.5)  
+  #scale_x_log10() + 
+  #scale_y_log10()
+
+p <- ggExtra::ggMarginal(p, type = "histogram")
+
+plot(p)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+tt <- sce_agg_merged_cc_ann %>%
+  dplyr::mutate(max_cat2 = ifelse(max_cat %in% c("unchanged","unexpressed"), NA, max_cat)) %>%
+  dplyr::mutate(group_1_2 = ifelse(expr == FALSE, NA, group_1)) %>%
+  dplyr::mutate(max_cat2 = ifelse(exclude_cat != "other", NA, max_cat2 )) %>% 
+  dplyr::mutate(cat_avg_fc = ifelse(cat_avg_fc == "0-1 log2FC", "unchannged", "dynamically expressed" )) %>%
+  dplyr::mutate(cat_avg_fc_2 = ifelse(exclude_cat != "other", NA, cat_avg_fc )) %>% 
+  dplyr::mutate(cat_avg_fc_2 = ifelse(max_cat == "unexpressed", NA, cat_avg_fc_2)) %>%
+  #dplyr::select(common_id, max_t50_cat, group_1, group_2) %>%
+  make_long( expr, group_1_2, cat_avg_fc_2, max_cat2)
+
+ggplot(tt, aes(x = x, 
+               next_x = next_x, 
+               node = node, 
+               next_node = next_node,
+               fill = factor(node))) +
+  geom_sankey(node.color = 1) +
+  theme_sankey(base_size = 16)
+
+
+```
+
+
+
+For the supplementary data would want to show a figure for each fo the steps in gene exclusion 
+
+Step 1: Remove unexpressed genes 
+Figure: scatter plot of Scott vs Hatten transcript data
+Colour the genes of selected versus unselected 
+
+Step 2: Remove genes that are expressed but are contaminant 
+Figure showing relative counts of each dataset 
+
+Step 3: Remove genes that are not changing 
+Fold change versus max time 
+
+Step 4: Split genes by max time 
+max vs min time 
+
+Step 5: Statistical testing of each group
+t50 vs fold change selected verus not 
+
+```{r}
+
+
+
+```
+
+
+## K-means clustering with diff1
+
+
+```{r diff1, fig.height= 6, fig.width= 6}
+library(DescTools)
+library(pheatmap)
+diff1_scott <- t(diff(t(as.matrix(log2_norm_avg_list[[1]])), lag = 1))
+colnames(diff1_scott) <- str_c("Scott_", colnames(diff1_scott))
+diff1_hatten <- t(diff(t(as.matrix(log2_norm_avg_list[[2]])), lag = 1))
+colnames(diff1_hatten) <- str_c("Hatten_", colnames(diff1_hatten))
+
+diff1_all <- cbind(diff1_scott, diff1_hatten)
+
+```
+
+```{r 2fc_kmeans}
+toc_t50_fc2 <- subset(toc_t50, ((max_expr_Hatten > expr_cutoff) | (max_expr_Scott > expr_cutoff)) & avg_fc > 2)
+dim(toc_t50_fc2)
+
+diff1_all_fc2 <- diff1_all[row.names(diff1_all) %in% row.names(toc_t50_fc2),]
+
+km_diff1 <- kmeans(diff1_all_fc2, centers = 15,  nstart=50,iter.max = 15) 
+
+toc_t50_fc2 <- merge(x =toc_t50, y = as.data.frame(km_diff1$cluster), by.x = 0, by.y = 0)
+
+original_k <-which(colnames(toc_t50_fc2) == "k_15") 
+colnames(toc_t50_fc2)[ncol(toc_t50_fc2)] <- "k_15"
+
+row.names(toc_t50_fc2) <- toc_t50_fc2$Row.names
+ toc_t50_fc2$Row.names
+
+toc_t50_fc2$k_15 <- as.factor(toc_t50_fc2$k_15)
+```
+
+check the optimal number of clusters for log2FC = 1 
+code from: 
+https://www.r-bloggers.com/finding-optimal-number-of-clusters/
+author: https://www.r-bloggers.com/author/sunny-anand/
+```{r, eval = FALSE}
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 20
+data <- diff1_all_fc2
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data, k, nstart=20,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+
+
+
+```
+
+```{r}
+
+ggplot(toc_t50_fc2 , aes(x = Winsorize(avg_t50, maxval = 30), y = avg_fc*avg_dir, group = k_15)) +
+  geom_point(aes(shape=k_15, color=k_15),size = 1) + 
+  scale_shape_manual(values=1:nlevels(toc_t50_fc2$k_15)) +   
+  scale_x_continuous(breaks = time_points, labels = names(time_points), name = "Time at 50% max change") + 
+  ylab("log2 fold change")
+```
+
+```{r, fig.width= 6, fig.height = 6, eval=FALSE}
+plot_group_timeline(log2_norm_list_shift, meta_list, km_diff1$cluster , p_time = pseudo_time, ylimits = c(-3,3))
+```
+
+log2fc = 1
+
+```{r 1fc_kmeans}
+toc_t50_fc1 <- subset(toc_t50, ((max_expr_Hatten > expr_cutoff) | (max_expr_Scott > expr_cutoff)) & avg_fc >= 1 & (toc_t50$hatten_trap_min_pval <= p_val_cutoff | toc_t50$scott_gnp_min_pval <=  p_val_cutoff) )
+dim(toc_t50_fc1)
+diff1_all <- cbind(diff1_scott, diff1_hatten)
+diff1_all_fc1 <- diff1_all[row.names(diff1_all) %in% row.names(toc_t50_fc1),]
+
+km_diff1_fc1 <- kmeans(diff1_all_fc1, centers = 15,  nstart=50,iter.max = 15) 
+
+toc_t50_fc1 <- merge(x = toc_t50_fc1, y = as.data.frame(km_diff1_fc1$cluster), by.x = 0, by.y = 0)
+colnames(toc_t50_fc1)[ncol(toc_t50_fc1)] <- "k_15"
+
+toc_t50_fc1$k_15 <- as.factor(toc_t50_fc1$k_15)
+```
+
+check the optimal number of clusters for log2FC = 1 
+code from: 
+https://www.r-bloggers.com/finding-optimal-number-of-clusters/
+author: https://www.r-bloggers.com/author/sunny-anand/
+```{r, eval = FALSE}
+set.seed(123)
+# Compute and plot wss for k = 2 to k = 15.
+k.max <- 20
+data <- diff1_all_fc1
+wss <- sapply(1:k.max, 
+              function(k){kmeans(data, k, nstart=20,iter.max = 15 )$tot.withinss})
+wss
+plot(1:k.max, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of clusters K",
+     ylab="Total within-clusters sum of squares")
+
+
+
+```
+
+```{r}
+dim(toc_t50_fc1)
+ggplot(toc_t50_fc1 , aes(x = Winsorize(avg_t50, maxval = 30), y = avg_fc*avg_dir, group = k_15)) +
+  geom_point(aes(shape=k_15, color=k_15),size = 1) + 
+  scale_shape_manual(values=1:nlevels(toc_t50_fc2$k_15)) +
+  scale_x_continuous(breaks = time_points, labels = names(time_points), name = "Time at 50% max change") + 
+  ylab("log2 fold change")
+```
+
+```{r, fig.width= 6, fig.height = 6, eval=FALSE}
+
+plot_group_timeline(log2_norm_list_shift, meta_list, km_diff1_fc1$cluster , p_time = pseudo_time, ylimits = c(-2,2))
+```
+
+
+
+
+Summarize all data in a single table 
+
+Groups: 
+1. unexpressed
+2. stabily expressed 
+3. changing: k means groups 
+
+```{r}
+toc_t50$expr <- (toc_t50$max_expr_Hatten > expr_cutoff) | (toc_t50$max_expr_Scott > expr_cutoff)
+toc_t50_expr <- toc_t50[toc_t50$expr,]
+
+table(toc_t50$expr)
+max_table <- table(toc_t50_expr$avg_max)
+max_table
+plot(max_table)
+
+table(toc_t50_expr$avg_min, toc_t50_expr$avg_max)
+
+pheatmap(table(toc_t50_expr$avg_min, toc_t50_expr$avg_max), cluster_rows = FALSE, cluster_cols = FALSE, labels_row = names(time_points), labels_col = names(time_points))
+
+toc_t50$max_cat <- cut(toc_t50$avg_max, c(0,2,22,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+table(toc_t50$max_cat, toc_t50$expr)
+
+ggplot(subset(toc_t50, expr & avg_fc > 1.5) , aes(x = Winsorize(avg_t50, maxval = 30), y = avg_fc*avg_dir)) + 
+  geom_point(size = 0.2) +
+  facet_wrap(~max_cat)
+```
+
+
+```{r, fig.width= 8, fig.height= 8}
+toc_t50 <- merge(x = toc_t50, y = as.data.frame(km_diff1_fc1$cluster), by.x = 0, by.y = 0, all.x = TRUE)
+
+colnames(toc_t50)[ncol(toc_t50)] <- "k_15"
+
+toc_t50$k_15 <- as.factor(toc_t50$k_15)
+
+ggplot(subset(toc_t50, expr & avg_fc > 1) , 
+       aes(x = Winsorize(avg_t50, maxval = 30), y = Winsorize(avg_fc*avg_dir, minval = -7.5, maxval = 7.5), group = k_15)) + 
+  geom_point(aes(shape=k_15, color=k_15), size = 1, alpha = 1) + 
+  scale_shape_manual(values=1:nlevels(toc_t50$k_15)) +
+  scale_x_continuous(breaks = time_points, labels = names(time_points), name = "Time at 50% max change") + 
+  ylab("log2 fold change") +
+  facet_wrap(~max_cat)
+
+```
+
+summarize variables by collapsing into groups 
+set a specific colour and shape for the groups 
+
+```{r}
+library(RColorBrewer)
+
+tx_cluster_info <- toc_t50 %>% 
+  dplyr::group_by(k_15) %>%
+   dplyr::summarise(gene_num = length(k_15),
+             avg_fc = which.max(avg_fc),
+             scott_fc = median(scott_fc),
+             hatten_fc = median(hatten_fc),
+             avg_t50 = median(avg_t50),
+             scott_t50 = median(scott_t50),
+             hatten_t50 = median(hatten_t50),
+             avg_dir = mean(avg_dir), 
+             avg_max = median(avg_max), 
+             avg_min = median(avg_min))
+
+
+plot(table(toc_t50$avg_max))
+
+tx_cluster_info$max_cat <- cut(tx_cluster_info$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+
+hist(toc_t50$avg_t50, breaks = 100)
+
+tx_cluster_info$t50_cat <- cut(tx_cluster_info$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+
+tx_cluster_info <- tx_cluster_info[!is.na(tx_cluster_info$k_15),]
+
+tx_cluster_info <- tx_cluster_info[order(tx_cluster_info$avg_max, tx_cluster_info$avg_t50),]
+ 
+tx_cluster_info$color <- colorRampPalette(brewer.pal(8, "Accent"))(15)
+
+tx_cluster_info
+
+
+toc_t50$max_cat <- cut(toc_t50$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+toc_t50$t50_cat <- cut(toc_t50$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+
+toc_t50$max_t50_cat <- str_c("Max_",toc_t50$max_cat, " ","t50_", toc_t50$t50_cat )
+
+
+```
+
+Map the newly ordered clusters with the colors back to the t50 table 
+```{r}
+toc_t50$k_15_ord <- plyr::mapvalues(toc_t50$k_15, tx_cluster_info$k_15, row.names(tx_cluster_info))
+toc_t50$k_15_color <- plyr::mapvalues(toc_t50$k_15, tx_cluster_info$k_15, tx_cluster_info$color)
+table(toc_t50$k_15_ord)
+table(toc_t50$k_15_color)
+```
+
+Add expression false as factor for max_cat 
+```{r}
+
+
+toc_t50$max_cat <- as.character(toc_t50$max_cat)
+toc_t50$max_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_t50_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_cat), "unexpressed")
+toc_t50$max_t50_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_t50_cat), "unexpressed")
+toc_t50$max_cat <- as.factor(toc_t50$max_cat)
+toc_t50$max_t50_cat <- as.factor(toc_t50$max_t50_cat)
+
+table(toc_t50$max_cat)
+table(toc_t50$max_t50_cat)
+table(is.na(toc_t50$max_t50_cat))
+
+#hist(toc_t50$max_expr_Hatten[is.na(toc_t50$max_t50_cat)])
+head(toc_t50[is.na(toc_t50$max_t50_cat),])
+
+# set the missing genes to unexpressed 
+#toc_t50$max_t50_cat[is.na(toc_t50$max_t50_cat)] <-  "unexpressed"
+
+```
+
+Add expression and below fc as caterogories for k means and add colours 
+```{r}
+toc_t50$k_15_comp <- ifelse(toc_t50$max_cat =="unchanged", "unchanged", as.character(toc_t50$k_15_ord))
+table(toc_t50$k_15_comp)
+toc_t50$k_15_comp <- ifelse(toc_t50$expr, as.character(toc_t50$k_15_comp), "unexpressed")
+table(toc_t50$k_15_comp)
+table(is.na(toc_t50$k_15_comp))
+toc_t50$k_15_comp <- as.factor(toc_t50$k_15_comp)
+
+
+
+
+# add colors 
+toc_t50$k_15_color_comp <- ifelse(toc_t50$max_cat =="unchanged", "gray30", as.character(toc_t50$k_15_color))
+table(toc_t50$k_15_color_comp)
+toc_t50$k_15_color_comp  <- ifelse(toc_t50$expr, as.character(toc_t50$k_15_color_comp), "gray70")
+table(toc_t50$k_15_color_comp)
+toc_t50$k_15_color_comp <- as.factor(toc_t50$k_15_color_comp)
+new_level <- levels(toc_t50$k_15_comp)[suppressWarnings(order(as.numeric(levels(toc_t50$k_15_comp))))]
+toc_t50$k_15_comp <- factor(toc_t50$k_15_comp, levels = new_level)
+
+
+k2color <- melt(table(toc_t50$k_15_comp, toc_t50$k_15_color_comp))
+k2color <- k2color[k2color$value > 0,c(1,2)]
+k2color <- k2color[order(k2color[,1]),]
+row.names(k2color) <- k2color[,1]
+k2color$Var1 <- NULL
+
+k2color_list <- as.list(as.character(k2color[,1]))
+names(k2color_list) <- as.character(row.names(k2color))
+```
+
+
+## repeat with 8 clusters 
+
+
+```{r, fig.width= 8, fig.height= 8}
+
+
+k8_diff1_fc2 <- kmeans(diff1_all_fc2, centers = 8,  nstart=200,iter.max = 20) 
+
+row.names(toc_t50) <- toc_t50$Row.names
+
+toc_t50 <- merge(x = toc_t50, y = as.data.frame(k8_diff1_fc2$cluster), by.x = 0, by.y = 0, all.x = TRUE)
+
+colnames(toc_t50)[ncol(toc_t50)] <- "k_8"
+
+toc_t50$k_8 <- as.factor(toc_t50$k_8)
+
+row.names(toc_t50) <- toc_t50$Row.names
+toc_t50$gene <-  toc_t50$Row.names
+toc_t50$Row.names <- NULL
+toc_t50$Row.names <- NULL
+
+
+
+ggplot(subset(toc_t50, expr & avg_fc > 1) , 
+       aes(x = Winsorize(avg_t50, maxval = 30), y = Winsorize(avg_fc*avg_dir, minval = -7.5, maxval = 7.5), group = k_8)) + 
+  geom_point(aes(shape=k_8, color=k_8), size = 1, alpha = 1) + 
+  scale_shape_manual(values=1:nlevels(toc_t50$k_8)) +
+  scale_x_continuous(breaks = time_points, labels = names(time_points), name = "Time at 50% max change") + 
+  ylab("log2 fold change") +
+  facet_wrap(~max_cat)
+
+```
+
+summarize variables by collapsing into groups 
+set a specific colour and shape for the groups 
+
+```{r}
+library(RColorBrewer)
+
+tx_cluster_info <- toc_t50 %>% 
+  dplyr::group_by(k_8) %>%
+   dplyr::summarise(gene_num = length(k_8),
+             avg_fc = which.max(avg_fc),
+             scott_fc = median(scott_fc),
+             hatten_fc = median(hatten_fc),
+             avg_t50 = median(avg_t50),
+             scott_t50 = median(scott_t50),
+             hatten_t50 = median(hatten_t50),
+             avg_dir = mean(avg_dir), 
+             avg_max = median(avg_max), 
+             avg_min = median(avg_min))
+
+
+plot(table(toc_t50$avg_max))
+
+tx_cluster_info$max_cat <- cut(tx_cluster_info$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+
+hist(toc_t50$avg_t50, breaks = 100)
+
+tx_cluster_info$t50_cat <- cut(tx_cluster_info$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+
+tx_cluster_info <- tx_cluster_info[!is.na(tx_cluster_info$k_8),]
+
+tx_cluster_info <- tx_cluster_info[order(tx_cluster_info$avg_max, tx_cluster_info$avg_t50),]
+ 
+tx_cluster_info$color <- colorRampPalette(brewer.pal(8, "Accent"))(8)
+
+tx_cluster_info
+
+
+toc_t50$max_cat <- cut(toc_t50$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+
+toc_t50$t50_cat <- cut(toc_t50$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+
+toc_t50$max_t50_cat <- str_c("Max_",toc_t50$max_cat, " ","t50_", toc_t50$t50_cat )
+
+
+```
+
+Map the newly ordered clusters with the colors back to the t50 table 
+```{r}
+toc_t50$k_8_ord <- plyr::mapvalues(toc_t50$k_8, tx_cluster_info$k_8, row.names(tx_cluster_info))
+toc_t50$k_8_color <- plyr::mapvalues(toc_t50$k_8, tx_cluster_info$k_8, tx_cluster_info$color)
+table(toc_t50$k_8_ord)
+table(toc_t50$k_8_color)
+```
+
+Add expression false as factor for max_cat 
+```{r}
+
+
+toc_t50$max_cat <- as.character(toc_t50$max_cat)
+toc_t50$max_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_t50_cat[toc_t50$avg_fc < 1 | (toc_t50$hatten_trap_min_pval > p_val_cutoff & toc_t50$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+toc_t50$max_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_cat), "unexpressed")
+toc_t50$max_t50_cat <- ifelse(toc_t50$expr, as.character(toc_t50$max_t50_cat), "unexpressed")
+toc_t50$max_cat <- as.factor(toc_t50$max_cat)
+toc_t50$max_t50_cat <- as.factor(toc_t50$max_t50_cat)
+
+table(toc_t50$max_cat)
+table(toc_t50$max_t50_cat)
+table(is.na(toc_t50$max_t50_cat))
+
+#hist(toc_t50$max_expr_Hatten[is.na(toc_t50$max_t50_cat)])
+#head(toc_t50[is.na(toc_t50$max_t50_cat),])
+
+# set the missing genes to unexpressed 
+toc_t50$max_t50_cat[is.na(toc_t50$max_t50_cat)] <-  "unexpressed"
+
+```
+
+Add expression and below fc as caterogories for k means and add colours 
+```{r}
+toc_t50$k_8_comp <- ifelse(toc_t50$max_cat =="unchanged", "unchanged", as.character(toc_t50$k_8_ord))
+table(toc_t50$k_8_comp)
+toc_t50$k_8_comp <- ifelse(toc_t50$expr, as.character(toc_t50$k_8_comp), "unexpressed")
+table(toc_t50$k_8_comp)
+table(is.na(toc_t50$k_8_comp))
+toc_t50$k_8_comp <- as.factor(toc_t50$k_8_comp)
+
+
+
+
+# add colors 
+toc_t50$k_8_color_comp <- ifelse(toc_t50$max_cat =="unchanged", "gray30", as.character(toc_t50$k_8_color))
+table(toc_t50$k_8_color_comp)
+toc_t50$k_8_color_comp  <- ifelse(toc_t50$expr, as.character(toc_t50$k_8_color_comp), "gray70")
+table(toc_t50$k_8_color_comp)
+toc_t50$k_8_color_comp <- as.factor(toc_t50$k_8_color_comp)
+new_level <- levels(toc_t50$k_8_comp)[suppressWarnings(order(as.numeric(levels(toc_t50$k_8_comp))))]
+toc_t50$k_8_comp <- factor(toc_t50$k_8_comp, levels = new_level)
+
+
+k2color_8 <- melt(table(toc_t50$k_8_comp, toc_t50$k_8_color_comp))
+k2color_8 <- k2color_8[k2color_8$value > 0,c(1,2)]
+k2color_8 <- k2color_8[order(k2color_8[,1]),]
+row.names(k2color_8) <- k2color_8[,1]
+k2color_8$Var1 <- NULL
+
+k2color_8_list <- as.list(as.character(k2color_8[,1]))
+names(k2color_8_list) <- as.character(row.names(k2color_8))
+```
+
+
+```{r}
+
+fc2_k8_comp <- toc_t50$k_8_ord
+names(fc2_k8_comp) <- toc_t50$Symbol
+fc2_k8_comp <- fc2_k8_comp[!is.na(fc2_k8_comp)]
+fc2_k8_comp <- factor(fc2_k8_comp)
+fc2_k8_comp <- factor(fc2_k8_comp, levels = c(1:length(levels(fc2_k8_comp))))
+
+plot_group_timeline(log2_norm_list_shift, meta_list, fc2_k8_comp, p_time = pseudo_time, ylimits = c(-2.5,2.5))
+
+
+```
+
+
+
+```{r, fig.width= 6, fig.height= 6}
+ggplot(toc_t50 , 
+       aes(x = Winsorize(avg_t50, maxval = 30), 
+           y = Winsorize(avg_fc*avg_dir, minval = -7.5, maxval = 7.5), 
+           group = k_15_comp)) + 
+  geom_point(aes(color=k_15_comp, fill = k_15_comp, shape = k_15_comp), 
+             size = 1.5, alpha = 1) + 
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change") + 
+  scale_color_manual(values = k2color[,1]) +
+  scale_fill_manual(values = k2color[,1]) +
+  scale_shape_manual(values=1:nlevels(toc_t50$k_15_comp)) +
+  ylab("log2 fold change") +
+  facet_wrap(~max_cat)
+
+ggplot(toc_t50 , 
+       aes(x = Winsorize(avg_t50, maxval = 30), 
+           y = Winsorize(avg_fc*avg_dir, minval = -7.5, maxval = 7.5), 
+           group = k_15_comp)) + 
+  geom_point(aes(color=max_t50_cat, fill = max_t50_cat), 
+             size = 1, alpha = 0.6) + 
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change") + 
+  #scale_color_manual(values = k2color[,1]) +
+  ##scale_fill_manual(values = k2color[,1]) +
+  #scale_shape_manual(values=1:nlevels(toc_t50$k_15_comp)) +
+  ylab("log2 fold change") +
+  facet_wrap(~max_cat) #+ 
+#  theme(legend.position="bottom")
+
+
+
+
+toc_t50 %>%
+  dplyr::filter(max_cat == "P14_P56" & avg_fc > 1) %>%
+ggplot(aes(Winsorize(avg_t50, maxval = 30))) + 
+         geom_histogram(bins = 250) + 
+        geom_vline(xintercept=7) + 
+        geom_vline(xintercept=6) + 
+        geom_vline(xintercept=5) 
+
+
+
+
+```
+
+```{r, fig.width= 3, fig.height= 3}
+toc_t50 %>%
+  dplyr::filter(max_cat == "P14_P56") %>%
+  ggplot(aes(x = Winsorize(avg_t50, maxval = 30), 
+           y = Winsorize(avg_fc*avg_dir, minval = -7.5, maxval = 7.5), 
+           group = k_15_comp)) + 
+  geom_point(aes(color=max_t50_cat, fill = max_t50_cat), 
+             size = 1, alpha = 0.6) + 
+  geom_hline(yintercept = 2) + 
+  ylim(c(0, 7.5)) + 
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change") + 
+  #scale_color_manual(values = k2color[,1]) +
+  ##scale_fill_manual(values = k2color[,1]) +
+  #scale_shape_manual(values=1:nlevels(toc_t50$k_15_comp)) +
+  ylab("log2 fold change") +
+  theme(legend.position="bottom")
+
+```
+
+```{r, fig.width= 8, fig.height= 8}
+
+table(toc_t50$k_15_comp)
+
+
+fc1_k15_comp <- toc_t50$k_15_ord
+names(fc1_k15_comp) <- toc_t50$Symbol
+fc1_k15_comp <- fc1_k15_comp[!is.na(fc1_k15_comp)]
+fc1_k15_comp <- factor(fc1_k15_comp, levels = c(1:length(levels(fc1_k15_comp))))
+
+plot_group_timeline(log2_norm_list_shift, meta_list, fc1_k15_comp, p_time = pseudo_time, ylimits = c(-2,2))
+
+
+max_t50_cat_n <- toc_t50$max_t50_cat
+names(max_t50_cat_n) <- toc_t50$Symbol
+
+
+plot_group_timeline(log2_norm_list_shift, meta_list, max_t50_cat_n , p_time = pseudo_time, ylimits = c(-2,2))
+
+
+
+
+
+plot_group_timeline(log2_norm_list_shift, meta_list, max_t50_cat_n , p_time = pseudo_time, ylimits = c(-3,3))
+
+
+max_t50_cat_n <- toc_t50 %>% 
+  dplyr::filter(avg_fc >= 4) %>% 
+  dplyr::select(max_t50_cat) 
+
+symbol_filt <- toc_t50 %>%
+  dplyr::filter(avg_fc >= 4) %>% 
+  dplyr::select(Symbol)
+
+max_t50_cat_n <- max_t50_cat_n$max_t50_cat
+names(max_t50_cat_n) <- symbol_filt$Symbol
+
+plot_group_timeline(log2_norm_list_shift, meta_list, max_t50_cat_n , p_time = pseudo_time, ylimits = c(-3,3))
+
+
+```
+
+```{r, fig.height= 4, fig.width=4}
+
+max_t50_cat_2 <- toc_t50 %>% 
+  dplyr::filter(avg_fc >= 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>% 
+  dplyr::select(max_t50_cat) 
+
+symbol_filt_2 <- toc_t50 %>%
+  dplyr::filter(avg_fc >= 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>%  
+  dplyr::select(Symbol)
+
+max_t50_cat_n_2 <- max_t50_cat_2$max_t50_cat
+
+
+
+max_t50_cat_1 <- toc_t50 %>% 
+  dplyr::filter(avg_fc < 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>% 
+  dplyr::select(max_t50_cat) 
+
+symbol_filt_1 <- toc_t50 %>%
+  dplyr::filter(avg_fc < 2 & max_t50_cat %in% c("Max_P14_P56 t50_Mid", "Max_P14_P56 t50_Late")) %>% 
+  dplyr::select(Symbol)
+
+max_t50_cat_n_1 <- max_t50_cat_1$max_t50_cat
+
+
+max_t50_cat_n_1 <- str_c (max_t50_cat_n_1, " 1-2 log2FC")
+max_t50_cat_n_2 <- str_c (max_t50_cat_n_2, " >2 log2FC")
+names(max_t50_cat_n_1) <- symbol_filt_1$Symbol
+names(max_t50_cat_n_2) <- symbol_filt_2$Symbol
+
+max_t50_P14_P56 <- c(max_t50_cat_n_1, max_t50_cat_n_2)
+
+plot_group_timeline(log2_norm_list_shift, meta_list, max_t50_P14_P56 , p_time = pseudo_time, ylimits = c(-3,3), col_num = 2)
+```
+
+
+# How many genes increase with differentiation
+
+```{r}
+library(parallel)
+library(GGally)
+table(toc_t50[toc_t50$avg_fc >= 1 | (toc_t50$hatten_trap_min_pval <= p_val_cutoff & toc_t50$scott_gnp_min_pval <=  p_val_cutoff),"max_t50_cat"])
+
+
+# Calculate the number of cores
+no_cores <- detectCores() - 1
+ 
+# Initiate cluster
+cl <- makeCluster(no_cores)
+
+group_genes_txchange <- function (df, fc_cutoff, p_val_cutoff, expr_scott_cutoff, expr_hatten_cutoff, 
+                                  table_only = FALSE, pval_both = FALSE) {
+  new_df <- df
+  new_df$max_cat <- cut(df$avg_max, c(0,2,20,64), right=FALSE, labels=c("E15", "P0_7", "P14_P56"))
+  new_df$t50_cat <- cut(df$avg_t50, c(0,6,18,64), right=FALSE, labels=c("Early", "Mid", "Late"))
+  new_df$max_t50_cat <- str_c("Max_",new_df$max_cat, " ","t50_", new_df$t50_cat )
+  new_df$max_cat <- factor(new_df$max_cat)
+  new_df$max_t50_cat <- factor(new_df$max_t50_cat)
+  # preset the factor levels so that table does miss the levels
+  new_df$max_cat <- factor(new_df$max_cat, levels = c(levels(new_df$max_cat), "unchanged", "unexpressed"))
+  new_df$max_t50_cat <- factor(new_df$max_t50_cat, levels = c(levels(new_df$max_t50_cat), "unchanged", "unexpressed"))
+  
+  # modify the groups based upon fc and pval 
+  if (pval_both) {
+  new_df$max_cat[df$avg_fc < fc_cutoff |  
+                   (df$hatten_trap_min_pval > p_val_cutoff | 
+                      df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+  
+  new_df$max_t50_cat[df$avg_fc < fc_cutoff |  
+                       (df$hatten_trap_min_pval > p_val_cutoff | 
+                          df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+  } else {
+  new_df$max_cat[df$avg_fc < fc_cutoff |  
+                   (df$hatten_trap_min_pval > p_val_cutoff & 
+                      df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged" 
+  
+  new_df$max_t50_cat[df$avg_fc < fc_cutoff |  
+                       (df$hatten_trap_min_pval > p_val_cutoff & 
+                          df$scott_gnp_min_pval >  p_val_cutoff)] <- "unchanged"   
+    
+  }
+  
+  new_df$max_cat[df$max_expr_Scott < expr_scott_cutoff & df$max_expr_Hatten < expr_hatten_cutoff] <-  "unexpressed"
+  new_df$max_t50_cat[df$max_expr_Scott < expr_scott_cutoff & df$max_expr_Hatten < expr_hatten_cutoff] <- "unexpressed"
+  
+
+  if (table_only) {
+    cat_tab <- tabulate(new_df$max_t50_cat, nbins = 11)
+    cat_tab <- as.vector(cat_tab)
+    names(cat_tab) <- levels(new_df$max_t50_cat)
+    return(cat_tab)
+  } else {
+    return(new_df)
+  }
+}
+  
+group_genes_txchange(toc_t50, 1, p_val_cutoff, 100, 100, table_only = TRUE) 
+group_genes_txchange(toc_t50, 1.5, p_val_cutoff, 100, 100, table_only = TRUE) 
+group_genes_txchange(toc_t50, 2, p_val_cutoff, 100, 100, table_only = TRUE) 
+
+group_genes_txchange(toc_t50, 1, p_val_cutoff, 100, 100, table_only = TRUE, pval_both = TRUE) 
+group_genes_txchange(toc_t50, 1.5, p_val_cutoff, 100, 100, table_only = TRUE, pval_both = TRUE)  
+group_genes_txchange(toc_t50, 2, p_val_cutoff, 100, 100, table_only = TRUE, pval_both = TRUE)  
+
+gene_num_param <- expand.grid(fc = seq(from = 1, to = 10, by = 1), 
+                              p_val_cutoff = c(10^(-2:-10)), 
+                              expr_scott_cutoff =  seq(from = 0, to = 300, by = 50),  
+                              expr_hatten_cutoff = seq(from = 0, to = 300, by = 50))
+
+gene_num <- mcmapply(function(fc_cut, p_val_cut, expr_scott_cut, expr_hatten_cut) group_genes_txchange(toc_t50, fc_cut, p_val_cut, expr_scott_cut, expr_hatten_cut, table_only = TRUE), gene_num_param$fc, gene_num_param$p_val_cutoff, gene_num_param$expr_scott_cutoff, gene_num_param$expr_hatten_cutoff,  mc.cores = 6)
+
+gene_num <- t(gene_num)
+
+max_late_t50_mid <- gene_num_param
+gene_num <- as.data.frame(gene_num)
+max_late_t50_mid$gene_num <- gene_num$`Max_P14_P56 t50_Late` + gene_num$`Max_P14_P56 t50_Mid`
+```
+
+```{r}
+
+ggplot(subset(max_late_t50_mid,  expr_scott_cutoff == 100 & expr_hatten_cutoff == 100), 
+       aes(x = fc, y = gene_num, group = p_val_cutoff, colour = as.factor(p_val_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc) )) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,  expr_scott_cutoff == 100 & expr_hatten_cutoff == 100 & fc == min(fc)),
+    aes(label = p_val_cutoff, colour = as.factor(p_val_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+
+ggplot(subset(max_late_t50_mid,  p_val_cutoff == 0.001  & expr_hatten_cutoff == 100), 
+       aes(x = fc, y = gene_num, group =  expr_scott_cutoff, colour = as.factor( expr_scott_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc))) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,   p_val_cutoff == 0.001  & expr_hatten_cutoff == 100 & fc == min(fc)),
+    aes(label = expr_scott_cutoff, colour = as.factor(expr_scott_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+ggplot(subset(max_late_t50_mid,  p_val_cutoff == 0.001  & expr_scott_cutoff == 100), 
+       aes(x = fc, y = gene_num, group =  expr_hatten_cutoff, colour = as.factor( expr_hatten_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc))) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,   p_val_cutoff == 0.001  & expr_scott_cutoff == 100 & fc == min(fc)),
+    aes(label = expr_hatten_cutoff, colour = as.factor(expr_hatten_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+
+ggplot(subset(max_late_t50_mid,  p_val_cutoff == 0.01  & expr_scott_cutoff == 100), 
+       aes(x = fc, y = gene_num, group =  expr_hatten_cutoff, colour = as.factor( expr_hatten_cutoff))) +
+  geom_line(size = 1) + 
+  coord_cartesian(xlim = c(min(max_late_t50_mid$fc) - 2, max(max_late_t50_mid$fc))) +
+  geom_text_repel(
+    data = subset(max_late_t50_mid,   p_val_cutoff == 0.001  & expr_scott_cutoff == 100 & fc == min(fc)),
+    aes(label = expr_hatten_cutoff, colour = as.factor(expr_hatten_cutoff)),
+    size = 6,
+    nudge_x = -45,
+    point.padding = 0.25,
+    box.padding = 0.25
+  ) 
+
+
+
+```
+
+
+
+
+
+Look at high at P7 genes 
+
+```{r}
+high_P7 <- c("Gli1", "Ccnd1", "Ccnd2", "E2f1", "Mycn", "Ezh2")
+expr[row.names(expr) %in% high_P7,]
+
+pseudo_time <- c("E15","P0", "P1", "P7", "P12", "P14", "P18", "P21", "P56")
+genesofinterest <- high_P7
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+
+
+plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-3,3))
+
+
+
+
+```
+
+```{r}
+t50_df <- toc_t50[,c("gene", "avg_t50")]
+
+```
+
+example genes 
+
+```{r, fig.width= 3, figure.heigh = 4}
+
+high_diff <- c("Dusp1", "Cbx7", "Ablim1", "Unc5b", "St8sia5")
+high_diff <- c(  "Plxna1",    "Prr16",     "Pvalb"  )
+high_diff <- c( "Rnd1",      "Rragd",     "Rtn4r")
+high_diff <- c( "Atp2b2",    "Atp2b4",    "Caln1" )
+
+high_diff <- c( "Cntn2",    "Hr",    "Unc5b" )
+
+expr[row.names(expr) %in% high_diff,]
+
+genesofinterest <- high_diff
+genesofinterest <- data.frame(gene = genesofinterest, cluster_id = genesofinterest)
+p <- plot_group_timeline(log2_norm_list_shift, meta_list, genesofinterest, p_time = pseudo_time, ylimits = c(-3,3), col_num = 3 )
+
+p
+
+```
+
+
+```{r, fig.height= 5, fig.width= 5}
+toc_t50 %>%
+  dplyr::filter(avg_fc > 2) %>%
+  dplyr::filter(!(max_t50_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(avg_t50 =  t50_to_compressed(avg_t50, time_ref)) %>% 
+  dplyr::mutate(avg_max =  t50_to_compressed(avg_max, time_ref)) %>% 
+    
+  ggplot(aes(x = avg_max, y = avg_t50, size = avg_fc)) + 
+  geom_jitter()
+  
+
+
+toc_t50 %>%
+  dplyr::filter(avg_fc > 2) %>%
+  dplyr::filter(!(max_t50_cat %in% c("unexpressed", "unchanged"))) %>%
+  dplyr::mutate(avg_t50 =  t50_to_compressed(avg_t50, time_ref)) %>% 
+  dplyr::mutate(avg_max =  t50_to_compressed(avg_max, time_ref)) %>% 
+    
+  ggplot(aes(y = avg_fc, x = avg_t50)) + 
+  geom_point() + 
+  facet_wrap(~avg_max)
+          
+
+
+```

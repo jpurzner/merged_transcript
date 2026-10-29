@@ -1,0 +1,653 @@
+---
+title: "H3K27me3-Bound Differentiation Genes and SHH Medulloblastoma Survival"
+author: ""
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE,
+  fig.width = 12, fig.height = 8, dpi = 150
+)
+```
+
+# Overview
+
+This analysis addresses whether H3K27me3-bound genes that dynamically change
+during cerebellar granule neuron differentiation are associated with prognosis
+in SHH medulloblastoma. We use the Cavalli et al. (2017) cohort of 763
+medulloblastoma patients, restricting to the SHH subgroup (n=172 with overall
+survival data).
+
+The differentiation genes (n=786) were defined as genes dynamically expressed
+in the granule neuron lineage with >2 log2 fold-change and mid-to-late
+activation timing (t50). H3K27me3 binding status was determined by Gaussian
+mixture model binarization of P7 GNP ChIP-seq data.
+
+```{r libraries}
+suppressMessages({
+  library(tidyverse)
+  library(survival)
+  library(survminer)
+  library(readxl)
+  library(limma)
+  library(ggrepel)
+  library(cowplot)
+})
+
+setwd("~/Dropbox/GNP_MB_integrate/Ezh2_2022/")
+```
+
+# 1. Data Loading
+
+```{r load-data}
+# Master table with gene annotations, ChIP-seq, and classification
+master <- read.table("gnp_MB_histone_k_toc_t50.txt",
+  header = TRUE, sep = "\t", stringsAsFactors = FALSE, check.names = FALSE, quote = "\"")
+colnames(master) <- gsub("\"", "", colnames(master))
+
+# Mouse-human ortholog mapping
+orth <- read.table("orth_mouse_filt_best.txt",
+  header = TRUE, sep = "\t", stringsAsFactors = FALSE, quote = "\"")
+
+# Cavalli et al. expression matrix (763 MB tumors, microarray)
+expr_raw <- read.table("~/Dropbox/GNP_MB_integrate/GSE85217_M_exp_763_MB_SubtypeStudy_TaylorLab.txt",
+  sep = "\t", header = TRUE, stringsAsFactors = FALSE, quote = "")
+
+# Clinical/survival data
+clinical <- read_excel("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/cavali_Clinical_data.xlsx",
+  sheet = 1, skip = 1)
+```
+
+# 2. Define Gene Sets
+
+We define differentiation genes from the master table and classify them by
+H3K27me3 binding and EZH2 anticorrelation status.
+
+## 2.1 Differentiation Genes
+
+```{r diff-genes}
+# 786 differentiation genes: dynamically expressed, >2 log2FC, mid/late timing
+diff_genes_master <- master %>%
+  dplyr::filter(max_cat == "P14_P56",
+    group_1 == "Dynically expressed in granule neuron lineage",
+    group_2 == ">2 log2FC",
+    t50_cat %in% c("Mid", "Late"),
+    !grepl("_exclude", max_cat_exclude))
+
+cat("Differentiation genes in master table:", nrow(diff_genes_master), "\n")
+
+# Map to human orthologs
+diff_orth <- merge(diff_genes_master, orth,
+  by.x = "ensembl_gene_id", by.y = "mmusculus_homolog_ensembl_gene")
+diff_orth <- diff_orth[!duplicated(diff_orth$hg_ensembl_gene_id.y), ]
+
+cat("With human orthologs:", nrow(diff_orth), "\n")
+cat("H3K27me3-bound:", sum(diff_orth$H3K27me3_bin == 1), "\n")
+cat("H3K27me3-unbound:", sum(diff_orth$H3K27me3_bin == 0), "\n")
+```
+
+## 2.2 EZH2 Anticorrelation in Human SHH-MB
+
+To identify differentiation genes whose expression anticorrelates with EZH2
+in human SHH tumors, we split SHH patients by EZH2 expression (bottom 30% vs
+top 30%) and ran limma differential expression. Genes significantly upregulated
+when EZH2 is low (logFC > 0, adj.P < 0.05) are classified as EZH2-anticorrelated.
+
+```{r ezh2-anticorrelation}
+sample_cols <- grep("^MB_SubtypeStudy_", colnames(expr_raw), value = TRUE)
+SHH_all <- intersect(clinical$Study_ID[clinical$Subgroup == "SHH"], sample_cols)
+
+# EZH2 expression percentile split
+ezh2_row <- expr_raw %>% dplyr::filter(HGNC_symbol_from_ensemblv77 == "EZH2")
+ezh2_vals <- sort(setNames(as.numeric(ezh2_row[1, SHH_all]), SHH_all))
+n_shh <- length(ezh2_vals)
+pctiles <- round(100 * (1:n_shh) / n_shh, 1)
+ezh2_df <- data.frame(ptn = names(ezh2_vals), pctile = pctiles, stringsAsFactors = FALSE)
+ezh2_df$grp <- case_when(ezh2_df$pctile <= 30 ~ "low", ezh2_df$pctile >= 70 ~ "high", TRUE ~ "mid")
+
+# Limma: EZH2-low vs EZH2-high
+ez_tb <- ezh2_df %>% dplyr::filter(grp != "mid")
+human_MB_SHH <- expr_raw %>% dplyr::select(Probe.Set.Name, one_of(ez_tb$ptn))
+rownames(human_MB_SHH) <- human_MB_SHH$Probe.Set.Name; human_MB_SHH$Probe.Set.Name <- NULL
+ez_meta <- plyr::mapvalues(colnames(human_MB_SHH), from = ez_tb$ptn, to = ez_tb$grp)
+design <- model.matrix(~ 0 + factor(ez_meta, levels = c("high", "low")))
+colnames(design) <- c("high", "low")
+fit <- lmFit(human_MB_SHH, design)
+fit2 <- eBayes(contrasts.fit(fit, makeContrasts(low - high, levels = design)))
+de_res <- topTable(fit2, sort = "none", n = Inf)
+de_res$Probe.Set.Name <- rownames(de_res)
+probe_ann <- expr_raw %>%
+  dplyr::select(Probe.Set.Name, EnsemblGeneID_from_ensemblv77, HGNC_symbol_from_ensemblv77)
+de_res <- merge(probe_ann, de_res, by = "Probe.Set.Name")
+
+# Merge with diff genes
+diff_de <- merge(diff_orth, de_res, by.x = "hg_ensembl_gene_id.y", by.y = "EnsemblGeneID_from_ensemblv77")
+diff_de <- diff_de[!duplicated(diff_de$hg_ensembl_gene_id.y), ]
+diff_de$ezh2_anticorr <- diff_de$logFC > 0 & diff_de$adj.P.Val < 0.05
+
+# 4-way classification
+diff_de$gene_set <- factor(case_when(
+  diff_de$H3K27me3_bin == 1 & diff_de$ezh2_anticorr ~ "H3K27me3+ & EZH2-anticorr",
+  diff_de$H3K27me3_bin == 1 & !diff_de$ezh2_anticorr ~ "H3K27me3+ only",
+  diff_de$H3K27me3_bin == 0 & diff_de$ezh2_anticorr ~ "EZH2-anticorr only",
+  TRUE ~ "Other diff gene"
+), levels = c("H3K27me3+ & EZH2-anticorr", "H3K27me3+ only",
+              "EZH2-anticorr only", "Other diff gene"))
+
+cat("\nGene set classification:\n")
+print(table(diff_de$gene_set))
+cat("\nEZH2-anticorrelated:", sum(diff_de$ezh2_anticorr), "/", nrow(diff_de), "\n")
+```
+
+# 3. Survival Cohort
+
+```{r survival-cohort}
+shh_clinical <- clinical %>%
+  dplyr::filter(Subgroup == "SHH") %>%
+  dplyr::mutate(os_time = as.numeric(`OS (years)`), os_event = as.numeric(Dead)) %>%
+  dplyr::filter(!is.na(os_time) & !is.na(os_event) & os_time > 0) %>%
+  dplyr::filter(Study_ID %in% sample_cols)
+
+shh_ids <- shh_clinical$Study_ID
+
+cat("SHH patients with survival data:", nrow(shh_clinical), "\n")
+cat("Events (deaths):", sum(shh_clinical$os_event), "\n")
+cat("Median follow-up:", round(median(shh_clinical$os_time), 1), "years\n")
+```
+
+# 4. Per-Gene Survival Analysis
+
+For each differentiation gene with a human ortholog present in the expression
+dataset, we split SHH patients at the median expression level and fit a Cox
+proportional hazards model (High vs Low expression).
+
+```{r per-gene-cox}
+expr_diff <- expr_raw %>%
+  dplyr::filter(EnsemblGeneID_from_ensemblv77 %in% diff_orth$hg_ensembl_gene_id.y) %>%
+  dplyr::select(EnsemblGeneID_from_ensemblv77, HGNC_symbol_from_ensemblv77, all_of(shh_ids))
+expr_diff <- expr_diff[!duplicated(expr_diff$EnsemblGeneID_from_ensemblv77), ]
+
+cox_list <- lapply(1:nrow(expr_diff), function(i) {
+  ens_id <- expr_diff$EnsemblGeneID_from_ensemblv77[i]
+  hgnc <- expr_diff$HGNC_symbol_from_ensemblv77[i]
+  ge <- as.numeric(expr_diff[i, shh_ids])
+  names(ge) <- shh_ids
+  med <- median(ge, na.rm = TRUE)
+  sdf <- data.frame(Study_ID = shh_ids,
+    expr_group = factor(ifelse(ge > med, "High", "Low"), levels = c("Low", "High"))) %>%
+    dplyr::left_join(shh_clinical[, c("Study_ID", "os_time", "os_event")], by = "Study_ID")
+  cx <- tryCatch(coxph(Surv(os_time, os_event) ~ expr_group, data = sdf), error = function(e) NULL)
+  if (is.null(cx)) return(NULL)
+  cs <- summary(cx)
+  data.frame(hg_ensembl = ens_id, hgnc_symbol = hgnc,
+    cox_pval = cs$coefficients[1, "Pr(>|z|)"],
+    cox_hr = cs$coefficients[1, "exp(coef)"],
+    coef = cs$coefficients[1, "coef"],
+    stringsAsFactors = FALSE)
+})
+cox_df <- do.call(rbind, cox_list)
+
+# Merge with gene info
+surv <- merge(diff_orth[, c("hg_ensembl_gene_id.y", "ensembl_gene_id", "mgi_symbol",
+  "H3K27me3_bin", "H3K27me3", "t50_cat")],
+  cox_df, by.x = "hg_ensembl_gene_id.y", by.y = "hg_ensembl") %>%
+  dplyr::filter(!is.na(cox_pval) & is.finite(log2(cox_hr))) %>%
+  dplyr::mutate(
+    log2_hr = log2(cox_hr),
+    neg_log10_p = -log10(cox_pval),
+    direction = ifelse(cox_hr < 1, "Protective", "Risk"),
+    sig = cox_pval < 0.05,
+    gene_group = ifelse(H3K27me3_bin == 1, "H3K27me3-bound diff gene",
+                        "Diff gene (H3K27me3-unbound)")
+  )
+```
+
+## Summary
+
+```{r summary-table}
+summary_df <- data.frame(
+  Category = c("All differentiation genes", "H3K27me3-bound", "H3K27me3-unbound"),
+  Tested = c(nrow(surv), sum(surv$H3K27me3_bin == 1), sum(surv$H3K27me3_bin == 0)),
+  Significant = c(sum(surv$sig),
+    sum(surv$sig & surv$H3K27me3_bin == 1),
+    sum(surv$sig & surv$H3K27me3_bin == 0)),
+  Protective = c(sum(surv$sig & surv$direction == "Protective"),
+    sum(surv$sig & surv$direction == "Protective" & surv$H3K27me3_bin == 1),
+    sum(surv$sig & surv$direction == "Protective" & surv$H3K27me3_bin == 0)),
+  Risk = c(sum(surv$sig & surv$direction == "Risk"),
+    sum(surv$sig & surv$direction == "Risk" & surv$H3K27me3_bin == 1),
+    sum(surv$sig & surv$direction == "Risk" & surv$H3K27me3_bin == 0))
+)
+summary_df$Pct_sig <- round(summary_df$Significant / summary_df$Tested * 100, 1)
+
+knitr::kable(summary_df, caption = "Per-gene survival associations (Cox PH, median split, p<0.05)")
+```
+
+# 5. Rank-Ordered Survival Association Plots {.tabset}
+
+Genes are ranked by log2(hazard ratio). HR < 1 (protective) means higher
+expression is associated with better survival; HR > 1 (risk) means higher
+expression is associated with worse survival.
+
+```{r rank-setup}
+sig_colors <- c("Protective (p<0.05)" = "#377EB8",
+                "Not significant" = "grey70",
+                "Risk (p<0.05)" = "#E41A1C")
+n_label <- 8
+```
+
+## All Differentiation Genes
+
+```{r rank-all, fig.width=12, fig.height=6}
+surv_ranked <- surv %>%
+  dplyr::arrange(log2_hr) %>%
+  dplyr::mutate(
+    rank = row_number(),
+    sig_dir = factor(case_when(
+      sig & direction == "Protective" ~ "Protective (p<0.05)",
+      sig & direction == "Risk" ~ "Risk (p<0.05)",
+      TRUE ~ "Not significant"
+    ), levels = c("Protective (p<0.05)", "Not significant", "Risk (p<0.05)"))
+  )
+
+label_df <- rbind(
+  surv_ranked %>% dplyr::filter(sig, direction == "Protective") %>%
+    dplyr::arrange(log2_hr) %>% dplyr::slice_head(n = n_label),
+  surv_ranked %>% dplyr::filter(sig, direction == "Risk") %>%
+    dplyr::arrange(desc(log2_hr)) %>% dplyr::slice_head(n = n_label)
+)
+
+ggplot(surv_ranked, aes(x = rank, y = log2_hr, color = sig_dir)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  geom_point(size = 1.2, alpha = 0.7) +
+  geom_point(data = surv_ranked %>% dplyr::filter(H3K27me3_bin == 1),
+    aes(shape = "H3K27me3+"), size = 1.2, alpha = 0.7) +
+  geom_label_repel(data = label_df,
+    aes(label = hgnc_symbol), size = 3, fontface = "bold",
+    box.padding = 0.4, max.overlaps = 20,
+    fill = "white", alpha = 0.9, label.size = 0.2, show.legend = FALSE) +
+  scale_color_manual(values = sig_colors, name = "Survival association") +
+  scale_shape_manual(values = c("H3K27me3+" = 17), name = NULL) +
+  labs(x = paste0("Rank (", nrow(surv_ranked), " differentiation genes)"),
+       y = expression(log[2](Hazard~Ratio)),
+       title = "All differentiation genes ranked by survival association",
+       subtitle = "SHH medulloblastoma (Cavalli et al.), median-split Cox PH") +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank())
+```
+
+## H3K27me3-Bound Genes Only
+
+```{r rank-k27, fig.width=12, fig.height=6}
+surv_k27 <- surv %>%
+  dplyr::filter(H3K27me3_bin == 1) %>%
+  dplyr::arrange(log2_hr) %>%
+  dplyr::mutate(
+    rank = row_number(),
+    sig_dir = factor(case_when(
+      sig & direction == "Protective" ~ "Protective (p<0.05)",
+      sig & direction == "Risk" ~ "Risk (p<0.05)",
+      TRUE ~ "Not significant"
+    ), levels = c("Protective (p<0.05)", "Not significant", "Risk (p<0.05)"))
+  )
+
+label_k27 <- rbind(
+  surv_k27 %>% dplyr::filter(sig, direction == "Protective") %>%
+    dplyr::arrange(log2_hr) %>% dplyr::slice_head(n = n_label),
+  surv_k27 %>% dplyr::filter(sig, direction == "Risk") %>%
+    dplyr::arrange(desc(log2_hr)) %>% dplyr::slice_head(n = n_label)
+)
+
+ggplot(surv_k27, aes(x = rank, y = log2_hr, color = sig_dir)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.4) +
+  geom_point(size = 1.5, alpha = 0.8) +
+  geom_label_repel(data = label_k27,
+    aes(label = hgnc_symbol), size = 3, fontface = "bold",
+    box.padding = 0.4, max.overlaps = 20,
+    fill = "white", alpha = 0.9, label.size = 0.2, show.legend = FALSE) +
+  scale_color_manual(values = sig_colors, name = "Survival association") +
+  labs(x = paste0("Rank (", nrow(surv_k27), " H3K27me3-bound differentiation genes)"),
+       y = expression(log[2](Hazard~Ratio)),
+       title = "H3K27me3-bound differentiation genes ranked by survival association",
+       subtitle = "SHH medulloblastoma, median-split Cox PH") +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank())
+```
+
+# 6. Protective vs Risk Gene Counts
+
+```{r bar-chart, fig.width=14, fig.height=5}
+bar_data <- surv %>%
+  dplyr::filter(sig) %>%
+  dplyr::group_by(gene_group, direction) %>%
+  dplyr::summarise(n = n(), .groups = "drop")
+
+totals <- surv %>%
+  dplyr::group_by(gene_group) %>%
+  dplyr::summarise(n_total = n(), n_sig = sum(sig), .groups = "drop")
+
+bar_data <- bar_data %>%
+  dplyr::left_join(totals, by = "gene_group") %>%
+  dplyr::mutate(pct = n / n_total * 100)
+
+nonsig_data <- totals %>%
+  dplyr::mutate(direction = "Not significant", n = n_total - n_sig,
+                pct = n / n_total * 100) %>%
+  dplyr::select(gene_group, direction, n, n_total, n_sig, pct)
+
+bar_all <- rbind(bar_data, nonsig_data) %>%
+  dplyr::mutate(direction = factor(direction,
+    levels = c("Protective", "Not significant", "Risk")))
+
+dir_colors <- c("Protective" = "#377EB8", "Not significant" = "grey85", "Risk" = "#E41A1C")
+
+# Fisher's tests
+fisher_sig <- matrix(c(
+  sum(surv$sig & surv$H3K27me3_bin == 1), sum(surv$sig & surv$H3K27me3_bin == 0),
+  sum(!surv$sig & surv$H3K27me3_bin == 1), sum(!surv$sig & surv$H3K27me3_bin == 0)
+), nrow = 2, byrow = TRUE)
+ft_sig <- fisher.test(fisher_sig)
+
+sig_only <- surv %>% dplyr::filter(sig)
+fisher_dir <- matrix(c(
+  sum(sig_only$direction == "Protective" & sig_only$H3K27me3_bin == 1),
+  sum(sig_only$direction == "Protective" & sig_only$H3K27me3_bin == 0),
+  sum(sig_only$direction == "Risk" & sig_only$H3K27me3_bin == 1),
+  sum(sig_only$direction == "Risk" & sig_only$H3K27me3_bin == 0)
+), nrow = 2, byrow = TRUE)
+ft_dir <- fisher.test(fisher_dir)
+
+p_count <- ggplot(bar_data, aes(x = gene_group, y = n, fill = direction)) +
+  geom_col(position = "dodge", color = "black", linewidth = 0.3, width = 0.6) +
+  geom_text(aes(label = n), position = position_dodge(width = 0.6),
+    vjust = -0.5, size = 4.5, fontface = "bold") +
+  scale_fill_manual(values = c("Protective" = "#377EB8", "Risk" = "#E41A1C"), name = "Direction") +
+  labs(x = NULL, y = "Number of genes (p<0.05)",
+       title = "Protective vs risk: differentiation genes in SHH-MB survival",
+       subtitle = paste0("K27+ sig enrichment: OR=", round(ft_sig$estimate, 2),
+         ", p=", format(ft_sig$p.value, digits = 2),
+         " | K27+ protective vs risk: OR=", round(ft_dir$estimate, 2),
+         ", p=", format(ft_dir$p.value, digits = 2))) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank()) +
+  ylim(0, max(bar_data$n) * 1.15)
+
+p_pct <- ggplot(bar_all, aes(x = gene_group, y = pct, fill = direction)) +
+  geom_col(color = "black", linewidth = 0.3, width = 0.6) +
+  geom_text(data = bar_all %>% dplyr::filter(direction != "Not significant"),
+    aes(label = n), position = position_stack(vjust = 0.5), size = 4, fontface = "bold") +
+  scale_fill_manual(values = dir_colors, name = "Survival\nassociation") +
+  labs(x = NULL, y = "% of genes",
+       title = "Survival association of differentiation genes (p<0.05)") +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank())
+
+plot_grid(p_count, p_pct, nrow = 1, labels = c("A", "B"), label_size = 14)
+```
+
+# 7. Kaplan-Meier Curves for Top Genes
+
+Top 3 protective and top 3 risk H3K27me3-bound differentiation genes by
+p-value, showing the survival curves for high vs low expression groups.
+
+```{r km-plots, fig.width=14, fig.height=10}
+top3_prot <- surv_k27 %>% dplyr::filter(sig, direction == "Protective") %>%
+  dplyr::arrange(cox_pval) %>% dplyr::slice_head(n = 3)
+top3_risk <- surv_k27 %>% dplyr::filter(sig, direction == "Risk") %>%
+  dplyr::arrange(cox_pval) %>% dplyr::slice_head(n = 3)
+km_genes <- rbind(top3_prot, top3_risk)
+
+km_plots <- list()
+for (j in 1:nrow(km_genes)) {
+  ens_id <- km_genes$hg_ensembl_gene_id.y[j]
+  hgnc <- km_genes$hgnc_symbol[j]
+  mouse <- km_genes$mgi_symbol[j]
+  hr_val <- round(km_genes$cox_hr[j], 2)
+  dir_label <- km_genes$direction[j]
+
+  ge <- as.numeric(expr_diff[expr_diff$EnsemblGeneID_from_ensemblv77 == ens_id, shh_ids])
+  names(ge) <- shh_ids
+  med <- median(ge, na.rm = TRUE)
+  km_df <- data.frame(Study_ID = shh_ids,
+    expr_group = factor(ifelse(ge > med, "High", "Low"), levels = c("Low", "High"))) %>%
+    dplyr::left_join(shh_clinical[, c("Study_ID", "os_time", "os_event")], by = "Study_ID")
+
+  km_fit <- survfit(Surv(os_time, os_event) ~ expr_group, data = km_df)
+  km_plots[[j]] <- ggsurvplot(km_fit, data = km_df,
+    pval = TRUE, pval.method = TRUE, risk.table = FALSE,
+    palette = c("#377EB8", "#E41A1C"),
+    title = paste0(hgnc, " (", mouse, ") — ", dir_label, ", HR=", hr_val),
+    xlab = "Overall survival (years)", ylab = "Survival probability",
+    legend.title = "Expression", legend.labs = c("Low", "High"),
+    ggtheme = theme_bw(base_size = 10),
+    font.main = c(10, "bold"))
+}
+
+km_grobs <- lapply(km_plots, function(p) p$plot)
+gridExtra::grid.arrange(grobs = km_grobs, nrow = 2, ncol = 3,
+  top = grid::textGrob("Top survival-associated H3K27me3-bound differentiation genes",
+    gp = grid::gpar(fontsize = 14, fontface = "bold")))
+```
+
+# 8. Gene Set Comparison
+
+Survival associations stratified by 4 gene sets defined by H3K27me3 binding
+and EZH2 anticorrelation status. This tests whether Polycomb-target genes
+that are EZH2-anticorrelated show a distinct survival pattern.
+
+```{r geneset-comparison, fig.width=14, fig.height=6}
+# Merge gene set info with survival results
+surv_sets <- merge(surv, diff_de[, c("hg_ensembl_gene_id.y", "ezh2_anticorr", "gene_set")],
+  by = "hg_ensembl_gene_id.y")
+
+set_colors <- c("H3K27me3+ & EZH2-anticorr" = "#E41A1C",
+                "H3K27me3+ only" = "#377EB8",
+                "EZH2-anticorr only" = "#FF7F00",
+                "Other diff gene" = "grey70")
+
+# Proportion significant per gene set
+set_summary <- surv_sets %>%
+  dplyr::group_by(gene_set) %>%
+  dplyr::summarise(
+    n = n(), n_sig = sum(sig),
+    n_prot = sum(sig & direction == "Protective"),
+    n_risk = sum(sig & direction == "Risk"),
+    pct_sig = round(n_sig / n * 100, 1),
+    .groups = "drop"
+  )
+
+knitr::kable(set_summary,
+  caption = "Survival associations by gene set",
+  col.names = c("Gene set", "N", "Sig", "Protective", "Risk", "% Sig"))
+
+# Bar plot
+set_bar <- surv_sets %>%
+  dplyr::filter(sig) %>%
+  dplyr::group_by(gene_set, direction) %>%
+  dplyr::summarise(n = n(), .groups = "drop")
+
+ggplot(set_bar, aes(x = gene_set, y = n, fill = direction)) +
+  geom_col(position = "dodge", color = "black", linewidth = 0.3, width = 0.7) +
+  geom_text(aes(label = n), position = position_dodge(width = 0.7),
+    vjust = -0.5, size = 4, fontface = "bold") +
+  scale_fill_manual(values = c("Protective" = "#377EB8", "Risk" = "#E41A1C"), name = "Direction") +
+  labs(x = NULL, y = "Number of genes (p<0.05)",
+       title = "Survival-associated genes by H3K27me3/EZH2 classification") +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank(),
+        axis.text.x = element_text(angle = 15, hjust = 1)) +
+  ylim(0, max(set_bar$n) * 1.2)
+```
+
+# 9. Combinatorial Analysis: EZH2 × Differentiation Gene Metagene
+
+We stratify patients by both EZH2 expression and differentiation gene metagene
+score (mean z-scored expression across gene sets) to test whether the combination
+of low EZH2 and high differentiation gene expression predicts survival.
+
+```{r combo-setup}
+# Metagene computation: z-score each gene across patients, then average
+compute_metagene <- function(ens_ids, expr_df, sample_ids) {
+  sub_expr <- expr_df %>% dplyr::filter(EnsemblGeneID_from_ensemblv77 %in% ens_ids)
+  mat <- as.matrix(sub_expr[, sample_ids])
+  mat_z <- t(scale(t(mat)))
+  colMeans(mat_z, na.rm = TRUE)
+}
+
+# EZH2 per patient
+ezh2_expr <- as.numeric(expr_raw[expr_raw$HGNC_symbol_from_ensemblv77 == "EZH2", shh_ids])
+names(ezh2_expr) <- shh_ids
+
+# Metagenes for 3 gene sets
+metagene_all <- compute_metagene(diff_de$hg_ensembl_gene_id.y, expr_diff, shh_ids)
+metagene_k27 <- compute_metagene(
+  diff_de$hg_ensembl_gene_id.y[diff_de$H3K27me3_bin == 1], expr_diff, shh_ids)
+metagene_k27ez <- compute_metagene(
+  diff_de$hg_ensembl_gene_id.y[diff_de$gene_set == "H3K27me3+ & EZH2-anticorr"],
+  expr_diff, shh_ids)
+
+# Build patient data
+patient_df <- data.frame(
+  Study_ID = shh_ids, EZH2 = ezh2_expr,
+  meta_all = metagene_all, meta_k27 = metagene_k27, meta_k27ez = metagene_k27ez,
+  stringsAsFactors = FALSE
+) %>%
+  dplyr::left_join(shh_clinical[, c("Study_ID", "os_time", "os_event", "Subtype")],
+    by = "Study_ID") %>%
+  dplyr::mutate(
+    EZH2_group = ifelse(EZH2 > median(EZH2), "EZH2-High", "EZH2-Low"),
+    diff_group = ifelse(meta_k27ez > median(meta_k27ez), "Diff-High", "Diff-Low"),
+    combo = factor(paste0(EZH2_group, " / ", diff_group),
+      levels = c("EZH2-Low / Diff-High", "EZH2-Low / Diff-Low",
+                 "EZH2-High / Diff-Low", "EZH2-High / Diff-High"))
+  )
+```
+
+## Kaplan-Meier: EZH2 × H3K27me3+/EZH2-Anticorrelated Metagene
+
+```{r combo-km, fig.width=10, fig.height=7}
+combo_colors <- c("EZH2-Low / Diff-High" = "#4DAF4A",
+                   "EZH2-Low / Diff-Low" = "#984EA3",
+                   "EZH2-High / Diff-Low" = "#FF7F00",
+                   "EZH2-High / Diff-High" = "#E41A1C")
+
+cat("Group sizes:\n"); print(table(patient_df$combo))
+cat("\nEvents per group:\n"); print(tapply(patient_df$os_event, patient_df$combo, sum))
+
+fit_combo <- survfit(Surv(os_time, os_event) ~ combo, data = patient_df)
+
+ggsurvplot(fit_combo, data = patient_df,
+  pval = TRUE, pval.method = TRUE,
+  palette = combo_colors,
+  risk.table = TRUE, risk.table.height = 0.28, risk.table.fontsize = 3,
+  title = "EZH2 × H3K27me3+/EZH2-Anticorrelated Differentiation Gene Metagene",
+  xlab = "Overall survival (years)", ylab = "Survival probability",
+  legend.title = "Group",
+  ggtheme = theme_bw(base_size = 11),
+  font.main = c(12, "bold"))
+```
+
+## Scatter: EZH2 vs Metagene
+
+```{r combo-scatter, fig.width=10, fig.height=7}
+patient_df$outcome <- ifelse(patient_df$os_event == 1, "Deceased", "Alive")
+
+ggplot(patient_df, aes(x = EZH2, y = meta_k27ez)) +
+  geom_vline(xintercept = median(patient_df$EZH2), linetype = "dashed", color = "grey50") +
+  geom_hline(yintercept = median(patient_df$meta_k27ez), linetype = "dashed", color = "grey50") +
+  geom_point(aes(color = combo, shape = outcome), size = 2.5, alpha = 0.7) +
+  scale_color_manual(values = combo_colors, name = "Group") +
+  scale_shape_manual(values = c("Alive" = 1, "Deceased" = 16), name = "Status") +
+  annotate("text", x = min(patient_df$EZH2) + 0.1, y = max(patient_df$meta_k27ez),
+    label = "EZH2-Low / Diff-High", hjust = 0, vjust = 1, size = 3.5,
+    fontface = "bold", color = "#4DAF4A") +
+  annotate("text", x = max(patient_df$EZH2) - 0.1, y = min(patient_df$meta_k27ez),
+    label = "EZH2-High / Diff-Low", hjust = 1, vjust = 0, size = 3.5,
+    fontface = "bold", color = "#FF7F00") +
+  labs(x = "EZH2 expression", y = "H3K27me3+/EZH2-anticorr metagene (z-score)",
+       title = "EZH2 vs Polycomb-target differentiation gene expression",
+       subtitle = "Dashed lines = median split; filled = deceased") +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "right", panel.grid.minor = element_blank())
+```
+
+# 10. Continuous Cox Models
+
+Median splits lose power. Here we test EZH2 and metagene scores as continuous
+variables in Cox models, including multivariate models adjusting for SHH subtype.
+
+```{r continuous-cox}
+# Univariate models
+models <- list(
+  "EZH2 (continuous)" = coxph(Surv(os_time, os_event) ~ EZH2, data = patient_df),
+  "All diff metagene" = coxph(Surv(os_time, os_event) ~ meta_all, data = patient_df),
+  "K27+ diff metagene" = coxph(Surv(os_time, os_event) ~ meta_k27, data = patient_df),
+  "K27+/EZH2-anticorr metagene" = coxph(Surv(os_time, os_event) ~ meta_k27ez, data = patient_df)
+)
+
+univar_results <- do.call(rbind, lapply(names(models), function(nm) {
+  cs <- summary(models[[nm]])$coefficients
+  data.frame(Model = nm, HR = round(exp(cs[1, "coef"]), 3),
+    p = format(cs[1, "Pr(>|z|)"], digits = 4), stringsAsFactors = FALSE)
+}))
+
+knitr::kable(univar_results, caption = "Univariate Cox models (continuous predictors)")
+```
+
+```{r multivariate-cox}
+# Bivariate: EZH2 + K27/EZH2-anticorr metagene
+cx_biv <- coxph(Surv(os_time, os_event) ~ EZH2 + meta_k27ez, data = patient_df)
+cat("Bivariate: EZH2 + K27+/EZH2-anticorr metagene\n")
+print(round(summary(cx_biv)$coefficients, 4))
+
+# Full model with subtype
+cx_full <- coxph(Surv(os_time, os_event) ~ EZH2 + meta_k27ez + Subtype, data = patient_df)
+cat("\nFull model: EZH2 + K27+/EZH2-anticorr metagene + SHH subtype\n")
+print(round(summary(cx_full)$coefficients, 4))
+```
+
+**Key finding:** In the full multivariate model adjusting for SHH subtype,
+both EZH2 expression and the H3K27me3+/EZH2-anticorrelated differentiation
+gene metagene remain independently significant predictors of overall survival.
+
+# 11. Top Treatment Candidates
+
+H3K27me3-bound differentiation genes where high expression is associated with
+better survival (protective). These are Polycomb-repressed in progenitors and
+their de-repression may promote a more differentiated, less aggressive state.
+
+```{r treatment-candidates}
+candidates <- surv_k27 %>%
+  dplyr::filter(sig, direction == "Protective") %>%
+  dplyr::arrange(cox_pval) %>%
+  dplyr::select(hgnc_symbol, mgi_symbol, cox_hr, cox_pval, H3K27me3)
+
+knitr::kable(candidates, digits = c(NA, NA, 3, 5, 2),
+  col.names = c("Human symbol", "Mouse symbol", "HR", "p-value", "H3K27me3 level"),
+  caption = "H3K27me3-bound protective differentiation genes (higher expression = better survival)")
+```
+
+```{r risk-genes}
+risk_genes <- surv_k27 %>%
+  dplyr::filter(sig, direction == "Risk") %>%
+  dplyr::arrange(cox_pval) %>%
+  dplyr::select(hgnc_symbol, mgi_symbol, cox_hr, cox_pval, H3K27me3)
+
+knitr::kable(risk_genes, digits = c(NA, NA, 3, 5, 2),
+  col.names = c("Human symbol", "Mouse symbol", "HR", "p-value", "H3K27me3 level"),
+  caption = "H3K27me3-bound risk differentiation genes (higher expression = worse survival)")
+```
+
+# Session Info
+
+```{r session-info}
+sessionInfo()
+```

@@ -1,0 +1,524 @@
+---
+title: "7_GNP_diff_go_terms"
+output: html_document
+date: "2024-05-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+```{r, eval=FALSE}
+BiocManager::install(c("topGO"))
+BiocManager::install(c("GOstats")) 
+BiocManager::install("ViSEAGO")
+install.packages("reshape")
+# Install if needed
+BiocManager::install("GOSemSim")
+install.packages("cluster")
+BiocManager::install("clusterProfiler")
+BiocManager::install("KEGG.db")
+BiocManager::install("ReactomePA")
+install.packages("writexl")
+
+```
+
+```{r}
+library(writexl)
+library(KEGG.db)
+source("~/Dropbox/jp_seq/topGO_wrap.R")
+```
+
+
+I don't want to burn figure space with GO terms.  Will present data in supplemental spreadsheets. 
+The genes will be shown on rows and the columns will be go terms 
+The goal will be to order the genes in some sensible fashion by clustering the go terms. 
+
+
+Add diff gene column if missing 
+
+```{r}
+
+diff_genes <- histone_k_toc_t50 %>%
+  dplyr::filter(max_cat == "P14_P56" ) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+  dplyr::filter(t50_cat %in% c("Mid", "Late")) %>%
+  dplyr::filter(!grepl("_exclude", max_cat_exclude)) %>%
+  dplyr::select(ensembl_gene_id)
+
+histone_k_toc_t50 <- histone_k_toc_t50 %>%
+  dplyr::mutate(diff_gene = case_when(
+      ensembl_gene_id %in%  diff_genes$ensembl_gene_id    ~  "differentiation",
+      TRUE                             ~  "other"
+  )) 
+```
+
+
+```{r}
+
+source("~/Dropbox/jp_seq/topGO_wrap.R")
+MF_GO <- topGO_wrap(histone_k_toc_t50, "diff_gene", "mgi_symbol", topNodes = 100)
+
+BP_GO <- topGO_wrap(histone_k_toc_t50, "diff_gene", "mgi_symbol", topNodes = 100, ontology = "BP")
+
+MF_GO_row <- topGO_wrap(histone_k_toc_t50, "diff_gene", "mgi_symbol", topNodes = 100, genes_as_row = TRUE)
+
+BP_GO_row <- topGO_wrap(histone_k_toc_t50, "diff_gene", "mgi_symbol", topNodes = 100, ontology = "BP", genes_as_row = TRUE)
+
+```
+
+Select columns to merge 
+```{r}
+
+MF_GO_ordered_annotated <- histone_k_toc_t50 %>%
+  dplyr::filter(diff_gene == "differentiation") %>%
+  dplyr::select(mgi_symbol, avg_fc, avg_t50, description, ensembl_gene_id, H3K27me3_single_bin) %>%
+  dplyr::left_join(MF_GO_row, by = join_by(mgi_symbol == genes)) %>%
+  dplyr::slice(match(MF_GO_row$genes, mgi_symbol)) %>%
+  dplyr::filter(!is.na(mgi_symbol))  # remove any rows where there wasn't a match in MF_GO_row
+
+```
+
+
+load pharmacology annotation for GPCRs and ion channels 
+from: http://www.guidetopharmacology.org/targets.jsp
+
+```{r}
+target_anno <- read.csv("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/targets_and_families.csv")
+
+target_anno <- target_anno %>%
+  dplyr::select(Type, Family.name, MGI.symbol, MGI.name)
+
+MF_GO_ordered_annotated_target <- MF_GO_ordered_annotated %>%
+  dplyr::left_join(target_anno, by = c("mgi_symbol" = "MGI.symbol"), multiple = "first")
+
+
+
+```
+
+Load transcription factor annotation 
+
+```{r}
+TF_anno <- read.csv("~/Dropbox/GNP_MB_integrate/annotation/MM_TF.csv")
+
+TF_anno <- TF_anno %>%
+dplyr::select(Symbol, Family) %>%
+    dplyr::rename(TF_family = Family)
+
+
+MF_GO_ordered_annotated_target_TF <- MF_GO_ordered_annotated_target %>%
+  dplyr::left_join(TF_anno, by = c("mgi_symbol" = "Symbol"), multiple = "first")
+
+```
+
+
+```{r}
+
+MF_GO_ordered_annotated_target_TF %>%
+  dplyr::filter(!is.na(Type)) %>%
+  dplyr::group_by(Type) %>%
+  dplyr::summarise(n = length(Type)) %>%
+    dplyr::arrange(desc(n))
+
+
+
+MF_GO_ordered_annotated_target_TF %>%
+  dplyr::filter(!is.na(Family.name)) %>%
+  dplyr::group_by(Family.name) %>%
+  dplyr::summarise(n = length(Family.name)) %>%
+    dplyr::arrange(desc(n))
+
+
+
+```
+
+
+Explore the enzyme in more detail 
+
+```{r}
+enzyme_info <- MF_GO_ordered_annotated_target_TF %>%
+  dplyr::filter(!is.na(Type)) %>%
+  dplyr::filter(Type == "enzyme") 
+```
+
+
+
+
+```{r}
+
+MF_GO_ordered_annotated_target_TF %>%
+  dplyr::filter(!is.na(TF_family)) %>%
+  dplyr::summarise(n = length(TF_family))
+
+MF_GO_ordered_annotated_target_TF %>%
+  dplyr::filter(!is.na(TF_family))  %>%
+  dplyr::group_by(TF_family) %>%
+  dplyr::summarise(
+    n = length(TF_family),
+    mgi_symbols = toString(mgi_symbol)
+  ) %>%
+  dplyr::arrange(desc(n))
+
+
+```
+
+
+```{r}
+write.table(MF_GO_ordered_annotated_target_TF, file = "~/Dropbox/Q_research/EZH2 final/MF_GO_ordered_annotated_target_TF.txt", sep = "\t", row.names = FALSE)
+
+write.table(MF_GO, file = "~/Dropbox/Q_research/EZH2 final/MF_GO.txt", sep = "\t", row.names = FALSE)
+write.table(BP_GO, file = "~/Dropbox/Q_research/EZH2 final/BP_GO.txt", sep = "\t", row.names = FALSE)
+
+```
+
+
+Need entrez id, get with biomart, tried this because getting only 370 genes when run the entrez id from bitr as below
+
+```{r}
+library(biomaRt)
+
+# Set up the connection to the Ensembl BioMart database
+ensembl <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+
+# Convert Ensembl to Entrez using biomaRt
+entrez_mapping <- getBM(
+  attributes = c("ensembl_gene_id", "entrezgene_id"),
+  filters = "ensembl_gene_id",
+  values = diff_genes$ensembl_gene_id,
+  mart = ensembl
+)
+
+# Remove any NA entries in the Entrez column
+entrez_mapping <- entrez_mapping[!is.na(entrez_mapping$entrezgene_id), ]
+
+```
+
+
+```{r}
+library(AnnotationHub)
+ah <- AnnotationHub()
+orgDb <- query(ah, c("OrgDb", "Mus musculus"))[[1]]  # Replace if needed with a more recent version
+
+# Re-run the bitr function with the new OrgDb
+gene_entrez_ah <- bitr(
+  diff_genes$ensembl_gene_id, 
+  fromType = "ENSEMBL", 
+  toType = "ENTREZID", 
+  OrgDb = orgDb
+)
+
+
+combined_entrez <- dplyr::left_join(gene_entrez, entrez_mapping, by = join_by("ENSEMBL" == "ensembl_gene_id"))
+all_entrez_ids <- unique(c(combined_entrez$ENTREZID, entrez_mapping$entrezgene_id))
+
+kegg_results_updated <- enrichKEGG(
+  gene = all_entrez_ids,
+  organism = "mmu",
+  pvalueCutoff = 0.05
+)
+
+# View the summary
+head(kegg_results_updated@result)
+```
+
+
+
+KEGG pathway enrichment
+
+```{r, eval = FALSE}
+library(clusterProfiler)
+gene_entrez <- bitr(diff_genes$ensembl_gene_id, fromType = "ENSEMBL", 
+                    toType = "ENTREZID", 
+                    OrgDb = org.Mm.eg.db)  # Adjust to your organism
+
+
+kegg_results <- enrichKEGG(gene = gene_entrez$ENTREZID,
+                           organism = "mmu",  # Use "hsa" for human
+                           pvalueCutoff = 0.05)
+
+
+kegg_results_module <- enrichMKEGG(gene = gene_entrez$ENTREZID,
+                           organism = "mmu",  # Use "hsa" for human
+                           pvalueCutoff = 1)
+```
+
+```{r, eval = FALSE}
+
+pathways <- KEGGREST::keggList("pathway", "mmu")
+
+# Retrieve genes mapped to each pathway
+pathway2gene <- KEGGREST::keggLink("mmu", "pathway")
+pathway2gene_df <- data.frame(
+  pathway = gsub("path:mmu", "", names(pathway2gene)),
+  gene = gsub("mmu:", "", pathway2gene)
+)
+
+# Check the structure to ensure it's populated
+head(pathway2gene_df)
+
+kegg_custom_results <- enricher(gene_entrez$ENTREZID,
+                                TERM2GENE = pathway2gene_df,
+                                pvalueCutoff = 0.1)
+```
+
+
+
+
+```{r}
+summary(kegg_results)
+summary(kegg_results_module)
+
+browseKEGG(kegg_results, 'mmu04024')
+
+dotplot(kegg_results, showCategory = 10)  # Show top 10 pathways
+barplot(kegg_results, showCategory = 10, title = "KEGG Pathway Enrichment")
+```
+
+Get the genes associated
+
+```{r}
+# Ensure kegg_results is set to readable gene names (optional but recommended)
+kegg_results_readable <- setReadable(kegg_results, OrgDb = org.Mm.eg.db, keyType = "ENTREZID")
+
+# Extract pathway IDs and comma-separated gene lists
+pathway_gene_lists <- kegg_results_readable@result %>%
+  dplyr::mutate(genes = sapply(strsplit(geneID, "/"), paste, collapse = ", ")) %>%
+  dplyr::select(ID, Description, genes)
+
+# Ensure the kegg_results is set to readable gene names (optional but recommended)
+kegg_results_readable <- setReadable(kegg_results, OrgDb = org.Mm.eg.db, keyType = "ENTREZID")
+
+# Add a column with comma-separated genes to the summary table
+kegg_results_summary <- kegg_results_readable@result %>%
+  dplyr::mutate(genes_list = sapply(strsplit(geneID, "/"), paste, collapse = ", "))
+
+library(stringr)
+
+kegg_results_final <- kegg_results_summary %>%
+  dplyr::select(-geneID) %>%
+  dplyr::filter(Count > 8) %>%
+  dplyr::filter(FoldEnrichment > 2) %>%
+  dplyr::mutate(Description = str_remove(Description, fixed("- Mus musculus (house mouse)")))
+
+```
+
+```{r}
+# Format KEGG pathway data to align with GO data structure
+kegg_results_final_formatted <- kegg_results_final %>%
+  dplyr::rename(
+    GO.ID = ID,
+    Term = Description,
+    gene_number = Count,
+    p_value = p.adjust,
+    genes = genes_list
+  ) %>%
+  dplyr::mutate(
+    GO_ontology = "Pathway"  # Indicate that these are KEGG pathways
+  ) %>%
+  dplyr::select(GO_ontology, GO.ID, Term, gene_number, p_value, genes)
+
+```
+
+
+
+Reactome
+
+```{r}
+library(ReactomePA)
+
+reactome_results <- enrichPathway(
+  gene = gene_entrez$ENTREZID,
+  organism = "mouse", 
+  pvalueCutoff = 0.05, 
+  readable = TRUE
+)
+
+
+
+
+```
+
+Setup up reactome for merging 
+
+```{r}
+# Step 1: Prepare the Reactome data to match the GO data structure
+reactome_results_processed <- reactome_results@result %>%
+  # Rename columns to match the GO table format
+  dplyr::rename(
+    GO.ID = ID,
+    Term = Description,
+    gene_number = Count,
+    p_value = p.adjust
+  ) %>%
+  # Add the necessary columns for compatibility
+  dplyr::mutate(
+    GO_ontology = "Pathway",   # Specify ontology type as "Pathway"
+    genes = str_replace_all(geneID, "/", ", "),  # Replace "/" with ", " in gene list
+    Term = str_replace(Term, "- Mus musculus \\(house mouse\\)", "")  # Clean up pathway names
+  ) %>%
+  # Select and reorder columns to match the GO table
+  dplyr::select(GO_ontology, GO.ID, Term, gene_number, p_value, genes)
+
+reactome_results_processed <- reactome_results_processed %>%
+  dplyr::filter(gene_number > 8) %>%
+  dplyr::filter(p_value < 0.05)
+
+
+reactome_results_processed
+```
+
+
+We will provide 2 tables.  One that has all the GO term and pathway enrichment and a second that is a gene based table. 
+
+
+Prepare final tables for export 
+
+```{r}
+
+BP_GO_final <- BP_GO %>% 
+  dplyr::select(-pair_id, -Annotated, -Expected, -classicFisher, -topgoFisher, -set1, -gene_num) %>%
+  dplyr::rename("gene_number" = Significant, "p_value" = elimFisher) %>%
+  dplyr::mutate(GO_ontology = "BP") %>%
+  dplyr::select(GO_ontology, everything())
+  
+MF_GO_final <- MF_GO %>% 
+  dplyr::select(-pair_id, -Annotated, -Expected, -classicFisher, -topgoFisher, -set1, -gene_num) %>%
+  dplyr::rename("gene_number" = Significant, "p_value" = elimFisher) %>%
+  dplyr::mutate(GO_ontology = "MF") %>%
+  dplyr::select(GO_ontology, everything())
+
+
+All_GO_final <- rbind(BP_GO_final, MF_GO_final, kegg_results_final_formatted, reactome_results_processed)
+
+write.table(All_GO_final, "~/Dropbox/GNP_MB_integrate/Ezh2_2022/All_GO_final.txt", sep = "\t", col.names =  TRUE)
+write_xlsx(All_GO_final, "~/Dropbox/Q_research/EZH2 final/All_GO_final.xlsx")
+```
+
+Merge the gene based table 
+
+```{r}
+
+
+# Applying the function to each data frame
+BP_GO_gene_based <- go_to_gene_table(BP_GO_final, "BP_term_")
+KEGG_gene_based <- go_to_gene_table(kegg_results_final_formatted, "KEGG_term_")
+Reactome_gene_based <- go_to_gene_table(reactome_results_processed, "Reactome_term_")
+
+
+# Combine all collapsed matrices
+final_combined <- BP_GO_gene_based %>%
+  left_join(KEGG_gene_based, by = "genes") %>%
+  left_join(Reactome_gene_based, by = "genes")
+
+# View the final result
+head(final_combined)
+
+diff_genes_annotated_all <- MF_GO_ordered_annotated_target_TF %>%
+  dplyr::left_join(final_combined, by = c("mgi_symbol" = "genes"))
+
+
+write.table(diff_genes_annotated_all, "~/Dropbox/GNP_MB_integrate/Ezh2_2022/diff_genes_annotated_all.txt", sep = "\t", col.names =  TRUE)
+write_xlsx(diff_genes_annotated_all, "~/Dropbox/Q_research/EZH2 final/diff_genes_annotated_all.xlsx")
+```
+
+
+
+Try to interpret this into text 
+
+Most common useful terms are 
+	
+GO:0099536 synaptic signaling
+GO:0034220 monoatomic ion transmembrane transport
+
+How man unique genes do these explain: 181 
+
+```{r}
+
+ All_GO_final %>%
+  filter(GO.ID %in% c("GO:0034220", "GO:0099536")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) %>%  # Keep unique gene names only
+  summarize(unique_gene_count = n())
+
+memb_synapse_genes <- All_GO_final %>%
+  filter(GO.ID %in% c("GO:0034220", "GO:0099536")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) 
+
+```
+
+
+Next term is GO:0000902 cell morphogenesis
+
+```{r}
+
+All_GO_final %>%
+  filter(GO.ID %in% c("GO:0000902")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) %>%  # Keep unique gene names only
+  dplyr::filter(!(genes %in% memb_synapse_genes$genes)) %>%
+  summarize(unique_gene_count = n())
+
+
+morphogenesis_genes <- All_GO_final %>%
+  filter(GO.ID %in% c("GO:0000902")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) %>%  # Keep unique gene names only
+  dplyr::filter(!(genes %in% memb_synapse_genes$genes)) 
+
+print(morphogenesis_genes)
+
+morphogenesis_genes_ano <- diff_genes_annotated_all %>% 
+  dplyr::filter(mgi_symbol %in% morphogenesis_genes$genes)
+
+```
+
+GO:0008092 cytoskeletal protein binding
+
+```{r}
+All_GO_final %>%
+  filter(GO.ID %in% c("GO:0008092")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) %>%  # Keep unique gene names only
+  dplyr::filter(!(genes %in% memb_synapse_genes$genes)) %>%
+  dplyr::filter(!(genes %in% morphogenesis_genes$genes)) %>%
+  summarize(unique_gene_count = n())
+
+All_GO_final %>%
+  filter(GO.ID %in% c("GO:0008092")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) %>%  # Keep unique gene names only
+  dplyr::filter(!(genes %in% memb_synapse_genes$genes)) %>% 
+dplyr::filter(!(genes %in% morphogenesis_genes$genes)) 
+
+
+```
+
+mmu04024 cAMP signaling pathway 
+
+```{r}
+
+All_GO_final %>%
+  filter(GO.ID %in% c("mmu04024")) %>%
+  separate_rows(genes, sep = ",\\s*") %>%  # Split genes into separate rows
+  distinct(genes) %>%  # Keep unique gene names only
+  dplyr::filter(!(genes %in% memb_synapse_genes$genes)) %>%
+  dplyr::filter(!(genes %in% morphogenesis_genes$genes)) %>%
+  summarize(unique_gene_count = n())
+
+```
+
+
+
+
+
+## Text from an old verions
+
+
+
+Many of the differentiation genes are involved in neuronal function with 181 genes impacting membrane potenial or synaptic singalling, which includes 45 ion channels and 45 transporters.  Genes involved in cell morphogenesis make up another 57 genes including cell adhesion proteins and another 28 proteins involved in the cytoskeleton. In addition to these terminal effectors of building a functional neuron we also see an increase in 50 transcription factors, which could have extensive downstream impact on transcription.
+

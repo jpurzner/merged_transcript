@@ -1,0 +1,761 @@
+---
+title: "trim_upper_tail rationale"
+output: html_notebook
+---
+
+```{r}
+histone_rlog_prune_mean %>%
+  dplyr::filter(variable == "H3K27me3") %>%
+ggplot( aes(x = value)) + 
+    geom_histogram(bins = 100)
+
+# Add a rank column based on H3K27me3
+rank_test <-  histone_rlog_prune_mean %>%
+  mutate(Rank = rank(-H3K27me3))
+ 
+rank_test %>%
+ # Use negative to rank in descending order
+ggplot( aes(x = Rank, y = H3K27me3)) +
+  geom_line() + # Use geom_point() if you prefer dots
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  theme_minimal() +
+  ggtitle("Rank vs. H3K27me3 Amount Plot") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+Try to use a rank plot to extract the cutpoint for the long tail 
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Add a rank column based on H3K27me3
+rank_test <-  histone_rlog_prune_mean %>%
+  mutate(Rank = rank(-H3K27me3))
+ 
+rank_test %>%
+ # Use negative to rank in descending order
+ggplot( aes(x = Rank, y = H3K27me3)) +
+  geom_line() + # Use geom_point() if you prefer dots
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  theme_minimal() +
+  ggtitle("Rank vs. H3K27me3 Amount Plot") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+smoothed <- loess(H3K27me3 ~ Rank, data = rank_test, span = 0.001)
+rank_test$SmoothedH3K27me3 <- predict(smoothed)
+
+rank_test %>%
+ # Use negative to rank in descending order
+ggplot( aes(x = Rank, y = SmoothedH3K27me3)) +
+  geom_line() + # Use geom_point() if you prefer dots
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  theme_minimal() +
+  ggtitle("Rank vs. H3K27me3 Amount Plot") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+rank_test <-  rank_test %>%
+  arrange(desc(Rank)) %>%
+  mutate(Deriv1 = c(NA, diff(SmoothedH3K27me3))) 
+ 
+
+smoothed_deriv1 <- loess(Deriv1 ~ Rank, data = rank_test, span = 0.1, na.action = na.exclude)
+rank_test$SmoothedDeriv1 <- predict(smoothed_deriv1, na.action = na.exclude)
+
+
+ rank_test %>%
+   ggplot( aes(x = Rank, y = SmoothedDeriv1)) +
+  geom_line() + # Use geom_point() if you prefer dots
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  theme_minimal() +
+  ggtitle("Rank vs. H3K27me3 Amount Plot") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+rank_test <-  rank_test %>%
+  arrange(desc(Rank)) %>%
+   mutate(Deriv2 = c(NA, diff(SmoothedDeriv1)))
+ 
+
+smoothed_deriv2 <- loess(Deriv2 ~ Rank, data = rank_test, span = 0.1, na.action = na.exclude)
+rank_test$SmoothedDeriv2 <- predict(smoothed_deriv2, na.action = na.exclude)
+
+
+ rank_test %>%
+   ggplot( aes(x = Rank, y = SmoothedDeriv2)) +
+  geom_line() + # Use geom_point() if you prefer dots
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  theme_minimal() +
+  ggtitle("Rank vs. H3K27me3 Amount Plot") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+ inflection_point <- which.max(rank_test$SmoothedDeriv2)
+ 
+ 
+plot1 <- ggplot(rank_test, aes(x = Rank, y = H3K27me3)) +
+  geom_line(color = "blue") +
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  geom_vline(xintercept = inflection_point) +
+  xlim(10000, 10) + 
+  theme_minimal() +
+  ggtitle("Rank vs. H3K27me3 Amount Plot") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot2 <- ggplot(rank_test, aes(x = Rank, y = SmoothedDeriv1)) +
+  geom_line(color = "red") +
+  geom_vline(xintercept = inflection_point) +
+
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+    xlim(10000, 10) +
+  theme_minimal() +
+  ggtitle("Rank vs. Smoothed Second Derivative") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot3 <- ggplot(rank_test, aes(x = Rank, y = SmoothedDeriv2)) +
+  geom_line(color = "green") +  # Second-order derivative in green for differentiation
+  geom_vline(xintercept = inflection_point, linetype = "dashed", color = "black") +
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  xlim(10000, 10) +
+  theme_minimal() +
+  ggtitle("Rank vs. Smoothed Second-Order Derivative") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Combine the plots, one on top of the other
+combined_plots <- plot1 / plot2 / plot3
+
+# Display the combined plot
+combined_plots
+
+
+
+
+
+```
+
+```{r}
+process_column <- function(column_name, data_frame) {
+  # Rank based on the specified column
+  ranked_data <- data_frame %>%
+    mutate(Rank = rank(-get(column_name)))
+  
+  # Smooth the specified column
+  smoothed <- loess(get(column_name) ~ Rank, data = ranked_data, span = 0.01, control = loess.control(surface = "direct"))
+  ranked_data$Smoothed <- predict(smoothed)
+  
+  # Calculate first derivative
+  ranked_data <- ranked_data %>%
+    arrange(desc(Rank)) %>%
+    mutate(Deriv1 = c(NA, diff(Smoothed)))
+  
+  # Smooth the first derivative
+  smoothed_deriv1 <- loess(Deriv1 ~ Rank, data = ranked_data, span = 0.1, na.action = na.exclude, control = loess.control(surface = "direct"))
+  ranked_data$SmoothedDeriv1 <- predict(smoothed_deriv1, na.action = na.exclude)
+  
+  return(ranked_data)
+}
+
+results_list <- list()
+
+# Assuming the first column is not to be processed (e.g., gene names)
+for (col_name in names(histone_rlog_prune_mean_only)[-1]) {
+  results_list[[col_name]] <- process_column(col_name, histone_rlog_prune_mean_only)
+}
+
+
+
+```
+
+```{r}
+# Assuming 'results_list' contains processed data for each column
+plot_data <- results_list[[6]] # Replace "H3K27ac" with any column name as needed
+
+
+# Correctly identify the crossing point
+crossing_point <- plot_data %>%
+  filter(SmoothedDeriv1 <= 2e-4) %>%
+  arrange(Rank) %>%
+  slice(1) # Get the first occurrence where the condition is met
+
+crossing_rank <- crossing_point$Rank
+crossing_smoothed_value <- crossing_point$Smoothed
+
+# Plot for Smoothed Data with horizontal line for the Smoothed value at crossing
+plot_smoothed <- ggplot(plot_data, aes(x = Rank)) +
+  geom_line(aes(y = Smoothed), color = "blue") +
+  geom_hline(yintercept = crossing_smoothed_value, linetype="dashed", color = "green") +
+  geom_vline(xintercept = crossing_rank, linetype="dashed", color = "green") +
+  scale_x_reverse() +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+# Plot for Smoothed First Derivative with a point and vertical line at crossing
+plot_deriv1 <- ggplot(plot_data, aes(x = Rank)) +
+  geom_line(aes(y = SmoothedDeriv1), color = "red") +
+  geom_vline(xintercept = crossing_rank, linetype="dashed", color = "green") +
+  geom_point(data = crossing_point, aes(x = Rank, y = SmoothedDeriv1), color = "green") +
+  scale_x_reverse(name = "Rank (Highest to Lowest)") +
+  theme_minimal() +
+  theme(plot.title = element_blank(),
+        axis.title.y=element_blank())
+
+# Combine the plots vertically with reduced spacing
+combined_plots <- plot_smoothed / plot_deriv1 
+
+# Display the combined plot
+combined_plots
+
+
+
+```
+
+
+```{r}
+
+
+# Initialize a list to store crossing points for each column
+crossing_points_list <- list()
+
+# Iterate through each column's results in results_list
+for (col_name in names(results_list)) {
+  # Extract the processed data for the column
+  processed_data <- results_list[[col_name]]
+  
+  # Identify the crossing point
+  crossing_point <- processed_data %>%
+    filter(SmoothedDeriv1 <= 3e-4) %>%
+    arrange(Rank) %>%
+    slice(1)  # Take the first row if multiple crossings exist
+  
+  # Extract crossing rank and smoothed value
+  crossing_rank <- crossing_point$Rank
+  crossing_smoothed_value <- crossing_point$Smoothed
+  
+  # Store the results in a list
+  crossing_points_list[[col_name]] <- data.frame(
+    Column = col_name,
+    CrossingRank = ifelse(length(crossing_rank) > 0, crossing_rank, NA),
+    CrossingSmoothedValue = ifelse(length(crossing_smoothed_value) > 0, crossing_smoothed_value, NA)
+  )
+}
+
+# Combine all the results into a single data frame
+crossing_points_df <- do.call(rbind, crossing_points_list)
+
+# Optionally, remove rows with NA (where no crossing point was found)
+crossing_points_df <- na.omit(crossing_points_df)
+
+# Display the combined results
+print(crossing_points_df)
+
+# Convert CrossingRank and CrossingSmoothedValue into numeric if they're not already
+crossing_points_df$CrossingRank <- as.numeric(as.character(crossing_points_df$CrossingRank))
+crossing_points_df$CrossingSmoothedValue <- as.numeric(as.character(crossing_points_df$CrossingSmoothedValue))
+
+# Merge crossing points with combined_data for plotting
+# This assumes that there's a matching mechanism between crossing_points_df$Column and combined_data$Dataset
+# Here, we're creating a mock-up for the illustration
+# In your actual implementation, ensure the data structures are compatible for merging
+combined_data_with_crossings <- merge(combined_data, crossing_points_df, by.x = "Dataset", by.y = "Column", all.x = TRUE)
+
+
+
+
+```
+
+
+
+
+Remove the tail and atttempt to run mclust to identify 
+```{r}
+h3k27me3_prune <- histone_rlog_prune_mean_only %>% 
+  dplyr::select(H3K27me3 ) %>% 
+  dplyr::filter(H3K27me3 < crossing_points_df[ crossing_points_df$Column == "H3K27me3", "CrossingSmoothedValue"])
+
+h3k27me3_prune %>%
+ggplot(aes(x = H3K27me3)) + 
+    geom_histogram(bins = 100, color = "black", fill = "gray") 
+
+
+  h3k27me3_prune_mclust <- Mclust(h3k27me3_prune, G=1:5)
+
+icl_test <-   mclustICL(h3k27me3_prune)
+str(icl_test)  
+plot(icl_test, what = "ICL")
+icl_test
+
+
+# Access the ICL matrix directly
+icl_matrix <- icl_test
+
+# Print the ICL matrix
+print(icl_matrix)
+
+# Access specific attributes
+g_values <- attr(icl_test, "G")
+model_names <- attr(icl_test, "modelNames")
+
+# Print these attributes
+print(g_values)
+print(model_names)
+
+# Assuming "E" is the first column in your ICL matrix
+icl_value_for_3_components_E <- icl_matrix[3, 1]
+print(icl_value_for_3_components_E)
+
+# For "V" model, if it's the second column
+icl_value_for_3_components_V <- icl_matrix[3, 2]
+print(icl_value_for_3_components_V)
+
+
+# Find the row index of the highest ICL value
+best_model_index <- which.max(icl_matrix)
+best_model_row <- best_model_index %% nrow(icl_matrix)
+best_model_column <- ceiling(best_model_index / nrow(icl_matrix))
+
+# Extract the best model's ICL value, G (number of components), and model type
+best_icl_value <- icl_matrix[best_model_row, best_model_column]
+best_g <- g_values[best_model_row]
+best_model_type <- model_names[best_model_column]
+
+# Print the best model details
+cat("Best model based on ICL:\n")
+cat("G (components):", best_g, "\n")
+cat("Model type:", best_model_type, "\n")
+cat("ICL value:", best_icl_value, "\n")
+
+
+best_mclust_model <- Mclust(h3k27me3_prune, G=best_g, model=best_model_type)
+
+# Summary of the best model
+summary(best_mclust_model)
+
+# Summary of the best model
+summary(best_mclust_model)
+
+# Get classification (cluster assignment) of data
+classification <- best_mclust_model$classification
+
+# Adding classification back to the dataframe
+h3k27me3_prune$Cluster <- classification
+
+# Visualizing the classification
+library(ggplot2)
+ggplot(h3k27me3_prune, aes(x = H3K27me3, y = ..count.., fill = factor(Cluster))) +
+  geom_histogram(bins = 30) + 
+  scale_fill_brewer(palette = "Set3") + 
+  theme_minimal() +
+  labs(fill = "Cluster", x = "H3K27me3", y = "Count") +
+  ggtitle("Histogram of H3K27me3 with Cluster Assignment")
+
+
+icl_test
+
+
+summary(h3k27me3_prune_mclust$BIC)
+
+# Automatically select the model with the highest BIC
+bestModel <- h3k27me3_prune_mclust$G[which.max(h3k27me3_prune_mclust$BIC)]
+
+# Print summary of the best model
+summary(h3k27me3_prune_mclust, bestModel = bestModel)
+
+```
+```{r}
+
+library(mclust)
+
+chip_mclust_icl <- function(data, column_name, G_range = 1:5, tail_cutoff = NULL) {
+  # Ensure the column exists in the dataframe
+  if (!column_name %in% names(data)) {
+    stop("Column name does not exist in the dataframe")
+  }
+
+  # Extract the column for clustering
+  column_data <- data[[column_name]]
+
+  # Initialize a vector to store final classifications, defaulting to 0 (pruned)
+  final_classification <- rep(0, length(column_data))
+
+  # Identify data points above the tail_cutoff
+  if (!is.null(tail_cutoff)) {
+    above_cutoff <- column_data > tail_cutoff
+    column_data <- column_data[!above_cutoff]
+  } else {
+    above_cutoff <- rep(FALSE, length(column_data))  # No data is pruned
+  }
+
+  # Ensure column_data is a dataframe expected by Mclust
+  column_data_df <- data.frame(column_data = column_data)
+
+  # Perform initial clustering with a range of G values to determine best model
+  initial_mclust <- Mclust(column_data_df, G = G_range)
+  
+  # Use mclustICL to find the best model based on ICL
+  icl_test <- mclustICL(column_data_df, G = G_range)
+  
+  # Find the index of the highest ICL value
+  best_model_index <- which.max(icl_test)
+  best_g <- attr(icl_test, "G")[best_model_index]
+  best_model_type <- attr(icl_test, "modelNames")[ceiling(best_model_index / length(best_g))]
+  
+  # Re-fit Mclust with the best G and model type
+  best_mclust_model <- Mclust(column_data_df, G = best_g, model = best_model_type)
+  
+  # Update final_classification with classifications for non-pruned data
+  final_classification[!above_cutoff] <- best_mclust_model$classification
+
+  # Return classification (including pruned data as a separate group) and the best model summary
+  return(list(
+    classification = final_classification,
+    best_model_summary = summary(best_mclust_model)
+  ))
+}
+
+
+histone_rlog_prune_mean_only$cluster <- NULL
+# And you want to trim all data points above a specific cutoff in 'H3K27me3'
+results <- chip_mclust_icl(histone_rlog_prune_mean_only, "H3K27me3", tail_cutoff = crossing_points_df[ crossing_points_df$Column == "H3K27me3", "CrossingSmoothedValue"])  # Adjust tail_cutoff as needed
+
+```
+```{r}
+chip_mclust_icl_all <- function(data, G_range = 1:5, tail_cutoff = NULL) {
+  results <- list()  # Initialize an empty list to store results
+  
+  # Iterate through each column in the dataframe
+  for (column_name in names(data)) {
+    # Apply tail_cutoff if specified
+    if (!is.null(tail_cutoff)) {
+      data_to_process <- data[[column_name]][data[[column_name]] <= tail_cutoff]
+    } else {
+      data_to_process <- data[[column_name]]
+    }
+    
+    # Check if data_to_process is not empty
+    if(length(data_to_process) > 0) {
+      # Ensure data is in the correct format for Mclust
+      mclust_data <- data.frame(column_data = data_to_process)
+  
+      # Perform ICL to determine the best model
+      icl_results <- mclustICL(mclust_data, G = G_range)
+      
+      # Find the best model based on ICL
+      best_icl_value <- max(icl_results)
+      best_model_info <- which(icl_results == best_icl_value, arr.ind = TRUE)
+      best_g <- best_model_info[1]
+      best_model <- names(icl_results)[best_model_info[2]]
+      
+      # Re-run Mclust with the best parameters
+      best_mclust_model <- Mclust(mclust_data, G = best_g, model = best_model)
+      
+      # Store classification results
+      results[[column_name]] <- best_mclust_model$classification
+    } else {
+      results[[column_name]] <- NA  # Assign NA if data was pruned away completely
+    }
+  }
+  
+  return(results)
+}
+
+histone_rlog_prune_mean_only$cluster <- NULL
+results_all <- chip_mclust_icl_all(histone_rlog_prune_mean_only)
+```
+
+
+
+```{r}
+
+
+call_mix_bin <- function(df) {
+  bin_res <- binarize_counts(df$value)
+  df$group <- bin_res$bin
+  return(df)
+}
+
+
+histone_rlog_prune_mean_l <- split(histone_rlog_prune_mean_m, as.factor(histone_rlog_prune_mean_m$variable))
+  
+histone_rlog_prune_mclust <- parLapply(cl, histone_rlog_prune_mean_l, call_mclust)
+histone_rlog_prune_bin <- parLapply(cl, histone_rlog_prune_mean_l, call_mix_bin)
+
+
+```
+
+
+```{r}
+
+
+histone_mclust_split <- chip_mclust_icl_all(histone_rlog_prune, tail_cutoff_table)
+
+```
+
+
+```{r}
+results_all <- chip_segment(histone_rlog_prune_mean_only, deriv_cutoff = 3e-4, tail_cutoff = 0.9)  # Adjust parameters as needed
+
+plot(results_all)
+
+```
+
+
+
+```{r}
+histone_rlog_prune_mean_only$cluster <- results$classification
+
+# Now create the histogram with ggplot2
+library(ggplot2)
+
+ggplot(histone_rlog_prune_mean_only, aes(x = H3K27me3, fill = as.factor(cluster))) +
+  geom_histogram(bins = 30, alpha = 0.6, color = "black") +
+  scale_fill_brewer(palette = "Set3", name = "Cluster") + # Use a color palette that suits the number of clusters
+  theme_minimal() +
+  labs(x = "H3K27me3", y = "Frequency", title = "Histogram of H3K27me3 by Cluster") +
+  theme(legend.title = element_text(size = 12), legend.text = element_text(size = 10))
+
+
+```
+
+
+```{r}
+# Example usage:
+# Assuming 'histone_rlog_prune_mean_only' is your dataframe and you want to plot specific columns
+chip_segment_results <- chip_segment(histone_rlog_prune_mean_only, deriv_cutoff = 2e-4, output_plots = FALSE, plot_columns = c("H3K27me3", "Ring1b"))
+
+chip_segment_results <- chip_segment(histone_rlog_prune_mean_only, deriv_cutoff = 2e-4, output_plots = FALSE)
+
+
+chip_segment_results <- chip_segment(histone_rlog_prune_mean_only)
+
+```
+
+
+
+```{r, fig.width= 5, fig.height= 5}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+
+# Assuming results_all contains both the data and their classifications
+# Reshape results_all to long format correctly
+
+results_all$gene_id <- row.names(results_all)
+tail_remove_class <-  as_tibble(results_all)
+
+data_long <- results_all %>%
+  dplyr::select(-ends_with("_class"), gene_id) %>%
+  tidyr::pivot_longer(
+    cols = -gene_id,
+    names_to = "variable",
+    values_to = "value"
+  )
+
+# Convert the classification data to long format
+class_long <- tail_remove_class %>%
+  dplyr::select(ends_with("_class"), gene_id) %>%
+  pivot_longer(
+    cols = -gene_id,
+    names_to = "variable_class",
+    values_to = "group"
+  ) %>%
+  dplyr::mutate(variable = gsub("_class$", "", variable_class)) %>%
+  dplyr::select(-variable_class)
+
+# Merge data and classification
+merged_data <- left_join(data_long, class_long, by = c("gene_id", "variable"))
+
+# Generate the plot
+hist_breaks <- seq(min(merged_data$value, na.rm = TRUE), max(merged_data$value, na.rm = TRUE), length.out = 100)
+n <- nrow(merged_data) / length(unique(merged_data$variable))
+
+ggplot(merged_data, aes(x = value)) + 
+  geom_histogram(aes(fill = factor(group), colour =  factor(group)), bins = 50, alpha = 0.8) +
+  geom_density(aes(colour = factor(group), y = ..count../sum(..count..)), alpha = 0.3) +
+  facet_wrap(~variable) +
+  theme_minimal() +
+  labs(fill = "Group", colour = "Group")
+
+```
+
+
+
+Need to optimize the number of fits to use. Try using Mclust 
+
+```{r}
+
+
+histone_rlog_prune_mean_only <- histone_rlog_prune_mean
+histone_rlog_prune_mean_only$gene <- NULL
+
+gmm <- Mclust(histone_rlog_prune_mean_only, G = 1:14)
+plot(gmm, what = "BIC")
+
+summary(gmm)
+gmm$BIC
+
+
+
+```
+
+
+```{r}
+
+set.seed(1233)
+histone_rlog_prune$cluster <- NULL  
+gmm <- Mclust(histone_rlog_prune, G = 12, modelNames = "VVV")
+
+#plot(gmm, what = "density")
+
+histone_rlog_prune$cluster <- as.factor(gmm$classification)
+
+ggplot(histone_rlog_prune, aes(x = GNP_H3K27me3_rep1, y = GNP_Ring1b_rep1, color = cluster)) +
+  geom_point(alpha = 0.6) +# Assuming 'color_mapping' is defined as before
+  theme_minimal() +
+  labs(color = "Cluster Assignment") +
+  theme(legend.position = "right")
+
+
+```
+
+
+```{r}
+mixtools_histone_all <- mvnormalmixEM(histone_rlog_prune, k = 9)
+
+```
+
+
+
+```{r}
+# Plot histograms for H3K27me3, with each cluster's distribution overlaid
+ggplot(histone_rlog_prune_mean_only, aes(x = H3K27me3, fill = cluster)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 50) + # Adjust bins as needed
+  #scale_fill_manual(values = color_mapping) + # Use your custom color mapping
+  theme_minimal() +
+  labs(x = "H3K27me3", y = "Count", fill = "Cluster Assignment") + 
+  facet_wrap(~cluster) +
+  theme(legend.position = "right")
+
+
+ggplot(histone_rlog_prune_mean_only, aes(x = H3K27me3, y = H3K4me3, color = cluster, fill = cluster)) +
+  geom_point(alpha = 0.6) +# Assuming 'color_mapping' is defined as before
+  theme_minimal() +
+  labs(color = "Cluster Assignment") +
+  theme(legend.position = "right")
+
+
+ggplot(histone_rlog_prune_mean_only, aes(x = H3K27me3, y = Ring1b, color = cluster)) +
+  geom_point(alpha = 0.6) +# Assuming 'color_mapping' is defined as before
+  theme_minimal() +
+  labs(color = "Cluster Assignment") +
+  theme(legend.position = "right")
+
+ggplot(histone_rlog_prune_mean_only, aes(x = H3K27ac, y = H3K4me3, color = cluster)) +
+  geom_point(alpha = 0.6) +# Assuming 'color_mapping' is defined as before
+  theme_minimal() +
+  labs(color = "Cluster Assignment") +
+  theme(legend.position = "right")
+```
+```{r}
+histone_merge <-  merge(histone_clusters, histone_rlog_prune_mean_only, by = "row.names")
+
+
+ggplot(histone_merge, 
+       aes(x= x, y = y, color = cluster)) + 
+  geom_polygon(data = p_no_i, aes( x = x, y = y,  group = k), alpha = 0.4, fill = "grey", colour = "grey")   +
+  geom_point(size = 0.3) 
+
+```
+
+binarize the histones marks 
+
+```{r, fig.width= 5, fig.height= 5}
+
+library(parallel)
+library(mclust)
+library(mixtools)
+source('~/Dropbox/jp_seq/binarize_counts.R')
+
+# Calculate the number of cores
+no_cores <- detectCores() - 1
+
+# Initiate cluster
+cl <- makeCluster(no_cores)
+
+call_mclust <- function (df) {
+  mclust_obj = Mclust(df$value, G= 2:4)
+  df$group <- mclust_obj$classification
+  return(df)
+}
+
+call_mix_bin <- function(df) {
+  bin_res <- binarize_counts(df$value)
+  df$group <- bin_res$bin
+  return(df)
+}
+
+clusterExport(cl, list( "call_mclust", "binarize_counts", "call_mix_bin"))
+clusterEvalQ(cl, list(library(mclust), library(mixtools), library(ggplot2)))
+
+
+
+histone_rlog_prune_mean_l <- split(histone_rlog_prune_mean_m, as.factor(histone_rlog_prune_mean_m$variable))
+  
+histone_rlog_prune_mclust <- parLapply(cl, histone_rlog_prune_mean_l, call_mclust)
+histone_rlog_prune_bin <- parLapply(cl, histone_rlog_prune_mean_l, call_mix_bin)
+
+stopCluster(cl)
+
+histone_rlog_prune_mclust_m <- dplyr::bind_rows(histone_rlog_prune_mclust)  
+histone_rlog_prune_bin_m <- dplyr::bind_rows(histone_rlog_prune_bin)  
+
+hist_breaks <- seq(0, 1, by = 0.02)
+n <- dim(histone_rlog_prune_mean)[1]
+
+
+ggplot(histone_rlog_prune_mclust_m, aes(value)) + 
+  #geom_histogram(aes(y = ..count..), bins = 50, alpha = 0.5, position="identity" ) #+ 
+  geom_histogram(aes(y = ..count..), colour = "black", fill = "grey", breaks = hist_breaks, alpha = 0.8) +
+  #geom_density(data = h3k27me3, aes(colour = factor(h3k27me3_group), fill = factor(h3k27me3_group)), alpha = 0.3) 
+  geom_density(aes(y =..density..*(n * 0.02),colour = factor(group), fill = factor(group)), alpha = 0.3)  + 
+  facet_wrap(~variable)
+
+
+ggplot(histone_rlog_prune_bin_m, aes(value)) + 
+  #geom_histogram(aes(y = ..count..), bins = 50, alpha = 0.5, position="identity" ) #+ 
+  geom_histogram(aes(y = ..count..), colour = "black", fill = "grey", breaks = hist_breaks, alpha = 0.8) +
+  #geom_density(data = h3k27me3, aes(colour = factor(h3k27me3_group), fill = factor(h3k27me3_group)), alpha = 0.3) 
+  geom_density(aes(y =..density..*(n * 0.02),colour = factor(group), fill = factor(group)), alpha = 0.3)  + 
+  facet_wrap(~variable) + 
+  theme(legend.position = "bottom", 
+          legend.direction = "horizontal",
+          legend.box.just	= "top",
+          legend.box = "horizontal", 
+          panel.spacing = unit(2, "lines"))
+
+
+histone_mclust <- histone_rlog_prune_mclust_m %>%
+  dplyr::select(-value) %>%
+  tidyr::spread(key = variable, value = group )
+
+histone_bin <- histone_rlog_prune_bin_m %>%
+  dplyr::select(-value) %>%
+  tidyr::spread(key = variable, value = group )
+
+
+```
+
+```{r}
+bin_1 <- binarize_counts(histone_rlog_prune_mean_l[[1]]$value)
+
+
+```
+
+try this new GA assissted multiple gausian 
+
+```{r}
+
+
+```

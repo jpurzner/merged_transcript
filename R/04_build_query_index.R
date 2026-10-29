@@ -69,6 +69,20 @@ idx$t50_day         <- mt_day_label(idx$t50)
 idx$time_of_max_day <- mt_day_label(idx$time_of_max)
 idx$time_of_min_day <- mt_day_label(idx$time_of_min)
 
+# Developmental gene program, following the three gene sets of
+# Purzner et al. 2025 (eLife, DOI 10.7554/eLife.105339.1 / bioRxiv
+# 2024.11.21.624171) defined from this timecourse by time of peak expression:
+#   embryonic       = peaks at E15            (max_category E15)
+#   proliferation   = peaks at P0-P7          (max_category P0_7; e.g. Gli1, Ccnd1)
+#   differentiation = peaks at P14-P56        (max_category P14_P56)
+# The paper's headline sets (783 embryonic / 440 proliferation / 787
+# differentiation) additionally require a >=4-fold (>=2 log2FC) change, so for
+# the strict published sets filter on gene_program AND fc_class == ">2 log2FC".
+.program_map <- c(E15 = "embryonic", P0_7 = "proliferation",
+                  P14_P56 = "differentiation",
+                  unchanged = "unchanged", unexpressed = "unexpressed")
+idx$gene_program <- unname(.program_map[as.character(idx$max_category)])
+
 # Round the floating-point metrics for a compact, readable file.
 num_cols <- c("t50","t50_scott","t50_hatten","log2fc","log2fc_scott",
               "log2fc_hatten","time_of_max","time_of_min","max_expr_scott",

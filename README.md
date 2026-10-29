@@ -34,7 +34,15 @@ Rscript R/query_gene.R Ezh2 Neurod1 --plot --plot-format png
 
 # Regenerate the standard figure set
 Rscript R/run_pipeline.R --step plots
+
+# Gene-classification Sankey (paper Fig S1: 783 embryonic / 440 proliferation / 787 differentiation)
+Rscript R/figures/sankey_classification.R
 ```
+
+Each gene carries a `gene_program` label (`embryonic` / `proliferation` /
+`differentiation`) following **Purzner et al. 2025** (eLife
+[10.7554/eLife.105339.1](https://doi.org/10.7554/eLife.105339.1)), the paper
+this dataset underlies — see `references/`.
 
 See **[docs/SKILL.md](docs/SKILL.md)** for the field dictionary, the JSON
 schema, and the biological interpretation guide — that is the document an
@@ -52,7 +60,10 @@ merged_transcript/
 │   ├── 02_align_timecourse.R    ← STAGE 2: interpolate + align -> alignment datasets + t50 table
 │   ├── 03_timecourse_plots.R    ← generate the standard figures
 │   ├── 04_build_query_index.R   ← slim the 115-col table into the query index
+│   ├── figures/sankey_classification.R ← gene-classification Sankey (paper Fig S1)
 │   └── lib/                       ← shared helpers (common.R) + the timecourse functions
+├── analysis/                      ← source Rmds for all the RNA-seq figures (see analysis/README.md)
+├── references/                    ← paper link, citation, gene-set mapping
 ├── data/                          ← see data/README.md for every dataset
 │   ├── toc_t50_2023_05_17.txt      ← canonical merged table (shipped, 115 cols)
 │   ├── timecourse_query_index.tsv  ← slim query index (built from the above)

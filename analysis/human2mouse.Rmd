@@ -1,0 +1,92 @@
+---
+title: "Untitled"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Add human gene symbols to the annotation 
+
+code from https://www.r-bloggers.com/converting-mouse-to-human-gene-names-with-biomart-package/
+
+```{r, eval = FALSE}
+musGenes <- histone_k_toc_t50_k27me3$mgi_symbol
+ 
+# Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+ 
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+ 
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=FALSE)
+human <- unique(genesV2[, 2])
+ 
+# Print the first 6 genes found to the screen
+print(head(humanx))
+return(genesV2)
+}
+mgi_to_hngc_symbol <- convertMouseGeneList(musGenes)
+head(mgi_to_hngc_symbol)
+```
+
+Our GNP specific transcripts are a bit of a nightmare to getting human orthologs because some of the names are ensembl transcript id and others were only described in UCSC.   
+
+Our tables are currently indexed by  ensembl transcript id, would optimal if we could maintain that in the human tables  
+
+```{r, eval = TRUE}
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+listAttributes(human)
+possible_attrib <- listAttributes(human)
+possible_attrib[grep( "hsapiens", possible_attrib$name),]
+
+attributes = c("ensembl_gene_id", "ensembl_transcript_id", "mmusculus_homolog_ensembl_gene", "mmusculus_homolog_ensembl_peptide", "mmusculus_homolog_orthology_type", "mmusculus_homolog_canonical_transcript_protein", "mmusculus_homolog_perc_id")
+```
+
+
+listAttributes(mouse)
+possible_attrib <- listAttributes(mouse)
+possible_attrib[grep( "hsapien", possible_attrib$name),]
+
+orth.mouse = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE)
+dim(orth.mouse)
+
+length(unique(orth.mouse$mmusculus_homolog_ensembl_gene))
+orth.mouse.filt = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE, filters="with_mmusculus_homolog")
+dim(orth.mouse.filt)
+length(unique(orth.mouse.filt$mmusculus_homolog_ensembl_gene))
+attributes = c("ensembl_gene_id","hgnc_symbol")
+human_HGNC = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE) 
+
+orth.mouse.filt <- merge(x = orth.mouse.filt, y= human_HGNC, by.x = 1, by.y  = 1, all.x = TRUE)
+colnames(orth.mouse.filt)[1] <- "hg_ensembl_gene_id"
+```
+
+```{r, eval = FALSE}
+
+
+test <- merge(x =histone_k_toc_t50_k27me3, y = mgi_to_hngc_symbol, by.x = "mgi_symbol", by.y =  "MGI.symbol", all.x = TRUE)
+histone_k_toc_t50_k27me3_hgnc_full <- merge(x =histone_k_toc_t50_k27me3, y = orth.mouse.filt, by.x = "ensembl_gene_id", by.y =  "mmusculus_homolog_ensembl_gene", all.x = TRUE)
+dim(histone_k_toc_t50_k27me3)
+dim(histone_k_toc_t50_k27me3_hgnc)
+
+histone_k_toc_t50_k27me3_hgnc  <- histone_k_toc_t50_k27me3_hgnc_full %>% 
+  dplyr::filter((!(is.na(hgnc_symbol))  &  (diff_group != "other"))) %>%
+  dplyr::select(hg_ensembl_gene_id,hgnc_symbol,diff_group)
+
+histone_k_toc_t50_k27me3_hgnc <- histone_k_toc_t50_k27me3_hgnc[!duplicated(histone_k_toc_t50_k27me3_hgnc$hg_ensembl_gene_id),]
+table(histone_k_toc_t50_k27me3_hgnc$hgnc_symbol == "")
+histone_k_toc_t50_k27me3_hgnc$hgnc_symbol[histone_k_toc_t50_k27me3_hgnc$hgnc_symbol == ""] <- NA
+
+write.table(histone_k_toc_t50_k27me3_hgnc, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+
+write.table(histone_k_toc_t50_k27me3_hgnc_full, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol_full.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+
+
+write.table(histone_k_toc_t50_k27me3_hgnc, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol_noquotes.txt", sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+
+
+```

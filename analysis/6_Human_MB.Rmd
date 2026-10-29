@@ -1,0 +1,1938 @@
+---
+title: "Figure5_mb_2018_3_2"
+author: "James Purzner"
+date: "3/2/2018"
+output:
+  pdf_document: default
+  html_document: 
+    fig_width: 12
+    fig_height: 12
+    dpi: 300
+    fig_retina: null
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(out.width='100%', out.height='100%') 
+#knitr::opts_chunk$set(dev = 'pdf')
+```
+
+
+TO DO: 
+check other subclasses to see if SHH specific 
+```{r, eval = FALSE}
+install.packages("ggfortify")
+install.packages("gdata")
+install.packages("survminer")
+install.packages("survival")
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("limma")
+```
+
+
+```{r}
+#devtools::install_github("daattali/ggExtra")
+#library(ggExtra)
+#devtools::install_github("tidyverse/ggplot2")
+library(dplyr)
+library(ggplot2)
+library(DescTools)
+library(ggfortify)
+library(ggrepel)
+library(latex2exp)
+library(survival)
+#library(survminer)
+library(ggforce)
+library(readxl)
+library(gdata)
+
+```
+
+
+```{r, eval = FALSE}
+histone_k_toc_t50_k27me3 <-  read.table( "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/histone_tnse_toc_t50_k27me3.txt", 
+            sep = "\t", header = TRUE, row.names = 1)
+
+```
+
+  
+## Add human gene symbols to the annotation 
+
+code from https://www.r-bloggers.com/converting-mouse-to-human-gene-names-with-biomart-package/
+
+```{r, eval = FALSE}
+musGenes <- TOC$mgi_symbol
+ 
+# Basic function to convert mouse to human gene names
+convertMouseGeneList <- function(x){
+ 
+require("biomaRt")
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+mouse = useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+ 
+genesV2 = getLDS(attributes = c("mgi_symbol"), filters = "mgi_symbol", values = x , mart = mouse, attributesL = c("hgnc_symbol"), martL = human, uniqueRows=FALSE)
+humanx <- unique(genesV2[, 2])
+ 
+# Print the first 6 genes found to the screen
+print(head(humanx))
+return(genesV2)
+}
+mgi_to_hngc_symbol <- convertMouseGeneList(musGenes)
+head(mgi_to_hngc_symbol)
+```
+
+
+Missing 4000 genes 
+
+
+```{r, eval = FALSE}
+
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+attributes = c("ensembl_gene_id", "mmusculus_homolog_ensembl_gene", "mmusculus_homolog_orthology_type", "mmusculus_homolog_perc_id")
+orth.mouse = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE)
+dim(orth.mouse)
+length(unique(orth.mouse$mmusculus_homolog_ensembl_gene))
+orth.mouse.filt = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE, filters="with_mmusculus_homolog")
+dim(orth.mouse.filt)
+length(unique(orth.mouse.filt$mmusculus_homolog_ensembl_gene))
+attributes = c("ensembl_gene_id","hgnc_symbol")
+human_HGNC = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE) 
+
+orth.mouse.filt <- merge(x = orth.mouse.filt, y= human_HGNC, by.x = 1, by.y  = 1, all.x = TRUE)
+colnames(orth.mouse.filt)[1] <- "hg_ensembl_gene_id"
+```
+
+```{r, eval = FALSE}
+
+
+test <- merge(x =histone_k_toc_t50_k27me3, y = mgi_to_hngc_symbol, by.x = "mgi_symbol", by.y =  "MGI.symbol", all.x = TRUE)
+histone_k_toc_t50_k27me3_hgnc_full <- merge(x =histone_k_toc_t50_k27me3, y = orth.mouse.filt, by.x = "ensembl_gene_id", by.y =  "mmusculus_homolog_ensembl_gene", all.x = TRUE)
+dim(histone_k_toc_t50_k27me3)
+dim(histone_k_toc_t50_k27me3_hgnc)
+
+histone_k_toc_t50_k27me3_hgnc  <- histone_k_toc_t50_k27me3_hgnc_full %>% 
+  dplyr::filter((!(is.na(hgnc_symbol))  &  (diff_group != "other"))) %>%
+  dplyr::select(hg_ensembl_gene_id,hgnc_symbol,diff_group)
+
+histone_k_toc_t50_k27me3_hgnc <- histone_k_toc_t50_k27me3_hgnc[!duplicated(histone_k_toc_t50_k27me3_hgnc$hg_ensembl_gene_id),]
+table(histone_k_toc_t50_k27me3_hgnc$hgnc_symbol == "")
+histone_k_toc_t50_k27me3_hgnc$hgnc_symbol[histone_k_toc_t50_k27me3_hgnc$hgnc_symbol == ""] <- NA
+
+write.table(histone_k_toc_t50_k27me3_hgnc, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+
+write.table(histone_k_toc_t50_k27me3_hgnc_full, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol_full.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+
+
+write.table(histone_k_toc_t50_k27me3_hgnc, "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol_noquotes.txt", sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
+
+
+```
+
+```{r}
+library(readxl)
+
+histone_k_toc_t50_k27me3_hgnc <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol.txt", sep = "\t", header = TRUE)
+
+histone_k_toc_t50_k27me3_hgnc_full <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/h3k27me3_groups_hgnc_symbol_full.txt", sep = "\t", header = TRUE)
+
+ezh2_hs_de = read_excel("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/EZH2_30_DE.xlsx", sheet = 1)
+
+# number of genes with de
+ezh2_hs_de %>%
+  dplyr::mutate(Ezh2_de_group =  case_when(
+      logFC >= log2(1.5) & adj.P.Val < 0.05   ~ "High_when_EZH2_low",
+      logFC <= -log2(1.5) & adj.P.Val < 0.05   ~ "Low_when_EZH2_low",
+      TRUE                           ~ "other"
+    )) %>%
+  dplyr::group_by(Ezh2_de_group) %>%
+  dplyr::summarise(n = length(Ezh2_de_group))
+    
+
+table(ezh2_hs_de$EnsemblGeneID_from_ensemblv77 %in% histone_k_toc_t50_k27me3_hgnc_full$hg_ensembl_gene_id) 
+table(histone_k_toc_t50_k27me3_hgnc_full$hg_ensembl_gene_id %in% ezh2_hs_de$EnsemblGeneID_from_ensemblv77) 
+
+
+histone_k_toc_t50_k27me3_ez_de  <- merge(x = histone_k_toc_t50_k27me3_hgnc_full, y = ezh2_hs_de, by.x = "hg_ensembl_gene_id", by.y = "EnsemblGeneID_from_ensemblv77", all = FALSE)
+
+```
+
+```{r}
+human_mb_ezh2 <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/ezh2_human_mb.txt", sep = "\t", header = FALSE)
+human_mb_ezh2 <- t(human_mb_ezh2[6:ncol(human_mb_ezh2)])
+human_mb_meta <- read.csv("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/cavali_Accession_ID.csv")
+human_mb_clinical <- read_excel("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/cavali_Clinical_data.xlsx", sheet = 1, skip = 1)
+
+human_mb_ezh2 <- sort(human_mb_ezh2)
+#data.frame( rank = c(1:length(human_mb_ezh2)), ezh2 = human_mb_ezh2)
+
+
+human_mb_raw <- read.table( "~/Dropbox/GNP_MB_integrate/2016_06_18_integration/mb_human_ezh2_Raw_Exp_Data.txt", sep ="\t", header = TRUE, quote = "")
+
+```
+
+pull just the EZH2 values 
+```{r}
+human_ezh2_tx <-  human_mb_raw[human_mb_raw$HGNC_symbol_from_ensemblv77 == "EZH2",]
+human_ezh2_tx <- t(human_ezh2_tx)
+human_ezh2_tx <- as.data.frame(human_ezh2_tx)
+human_ezh2_tx$ptn <- row.names(human_ezh2_tx)
+colnames(human_ezh2_tx)[1] <- "EZH2"
+human_ezh2_tx <- human_ezh2_tx[-(1:5), ]
+dim(human_ezh2_tx)
+```
+
+join with the clinical data by study_ID 
+```{r}
+dim(human_mb_clinical)
+
+human_ezh2_tx  <- left_join(human_ezh2_tx, human_mb_clinical, by = c("ptn" = "Study_ID"))
+
+
+
+human_ezh2_tx$subtype <- human_ezh2_tx$Subgroup
+
+
+human_ezh2_tx$EZH2 <- as.numeric(as.character(human_ezh2_tx$EZH2))
+
+
+human_ezh2_tx_SHH <- human_ezh2_tx %>%
+  dplyr::filter(subtype == "SHH") %>% 
+  ungroup()
+
+human_ezh2_tx_SHH <- human_ezh2_tx_SHH[order(human_ezh2_tx_SHH$EZH2),]
+row.names(human_ezh2_tx_SHH) <- c(1:nrow(human_ezh2_tx_SHH))
+human_ezh2_tx_SHH$rank <- c(1:nrow(human_ezh2_tx_SHH))
+  
+percentile.ranks <- function(vector, from=NA, to=NA, round=1){
+    if(is.na(from)) from <- min(vector)
+    if(is.na(to)) to <- max(vector)
+    vector <- na.omit(vector)
+    data.frame(
+        value = from:to,
+        perc.rank = round(100*sapply(from:to, function(x) length(vector[vector<=x])/length(vector)), round)
+    )
+}
+
+ezh2_percentile <- percentile.ranks(human_ezh2_tx_SHH$rank)
+
+human_ezh2_tx_SHH$percentile <- ezh2_percentile$perc.rank
+
+
+human_ezh2_tx_SHH <- human_ezh2_tx_SHH %>% 
+  dplyr::mutate(EZH2_high_low = case_when(
+      percentile <= 30                    ~  "Ezh2 low",
+      percentile >= 70                    ~  "Ezh2 high",
+      percentile < 70 & percentile > 30   ~  "Ezh2 mid",
+      TRUE                                ~  "other"
+
+  ))
+
+
+#  coord_cartesian(xlim = c(6.5, 11), ylim = c(0,0.3))
+
+
+# TO DO 
+# filter the genes 
+# generate the histogram 
+
+
+#human_mb_ezh2 %>%
+#ggplot( aes(MB)) + 
+#  #geom_histogram(aes(y = ..count..), bins = 50, alpha = 0.5, position="identity" ) #+ 
+#  geom_histogram(aes(y = ..count.., colour = factor(MB_H3K27me3_bin), fill = factor(MB_H3K27me3_bin)), breaks = hist_breaks, alpha = 0.8) +
+#    scale_fill_manual(values = c("0" = "gray", "1" = "steelblue1" )) +
+#  scale_colour_manual(values = c("0" = "gray", "1" = "steelblue1" )) +
+#  labs(x = "MB H3K27me3 intensity", y = "Gene number in bin") +
+#  #geom_density(data = h3k27me3, aes(colour = factor(h3k27me3_group), fill = factor(h3k27me3_group)), alpha = 0.3) 
+#  #geom_density(aes(y =..density..*(n * 0.02),colour = factor(H3K27me3_bin), fill = factor(H3K27me3_bin)), alpha = 0.3)  + 
+#  theme_classic() +
+#  theme(legend.position = "none", 
+          #legend.direction = "horizontal",
+          #legend.box.just	= "top",
+          #legend.box = "horizontal", 
+ #         text = element_text(size = 16),
+  #        panel.spacing = unit(2, "lines"))
+
+```
+
+
+```{r, fig.width=3, fig.height= 2}
+
+human_ezh2_tx_SHH %>%
+ggplot(aes(x = EZH2, fill = EZH2_high_low )) + 
+   geom_dotplot(stackgroups = TRUE, binwidth = 0.08, binpositions = "all", dotsize = 0.9) + 
+  labs(x = "EZH2 RNA abundance", y = "number of tumors", fill = "EZH2 transcript group") +
+  theme_classic() + 
+  theme(legend.position = c(0.2, 0.5), 
+        axis.text.y = element_blank()
+        )
+
+```
+
+
+```{r rank_plor, fig.width=6, fig.height=4}
+
+hs_ezh2_de_genes_ez_low <- c("Gabra6", "Cbx7", "Phyhip", "Ablim1", "Cacna1a","Slc12a5" )
+hs_ezh2_de_genes_ez_high <- c( "Atoh1", "Mycn","Ezh2","Top2a", "Melk","Cdk1")
+
+histone_k_toc_t50_k27me3_ez_de %>%
+  ggplot(aes(x = diff_group, y = logFC )) + 
+  geom_violin() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+histone_k_toc_t50_k27me3_ez_de <- histone_k_toc_t50_k27me3_ez_de %>%
+  mutate(Ezh2_de_group =  case_when(
+      logFC >= log2(1.5) & adj.P.Val < 0.05   ~ "High_when_EZH2_low",
+      logFC <= -log2(1.5) & adj.P.Val < 0.05   ~ "Low_when_EZH2_low",
+      TRUE                           ~ "other"
+    )) 
+
+table(histone_k_toc_t50_k27me3_ez_de$Ezh2_de_group)
+
+
+
+
+
+histone_k_toc_t50_k27me3_ez_de$Ezh2_de_group <- as.factor(histone_k_toc_t50_k27me3_ez_de$Ezh2_de_group)
+
+
+
+
+hs_ezh2_de_cols <- c("orange2", "navajowhite4", "grey70")
+names(hs_ezh2_de_cols) <- levels(histone_k_toc_t50_k27me3_ez_de$Ezh2_de_group)
+
+histone_k_toc_t50_k27me3_ez_de_rank <- histone_k_toc_t50_k27me3_ez_de %>%
+  dplyr::mutate( rank_id = dense_rank(logFC)) 
+  
+histone_k_toc_t50_k27me3_ez_de_rank   %>%
+  
+ggplot(aes(x = rank_id, y = logFC, group= Ezh2_de_group, colour = Ezh2_de_group )) + 
+  geom_point() + 
+  labs(x = "Rank by Log2 Fold Change (FC)", 
+         y = TeX("$log_2\\frac{$Expression Ezh2 low tumors (30%)$}{$Expression Ezh2 high tumors (30%)}"),
+       colour = "Differential expressison" ) + 
+
+  geom_text_repel(data =  subset(histone_k_toc_t50_k27me3_ez_de_rank,  mgi_symbol %in% hs_ezh2_de_genes_ez_low), 
+            aes(x = rank_id, y = logFC, label = hgnc_symbol), 
+            nudge_x = -10,
+            #  point.padding = 10,
+           # box.padding = 1,
+            min.segment.length = 0,
+            force = 30,
+            size = 4, 
+            colour = "black") +
+    geom_text_repel(data =  subset(histone_k_toc_t50_k27me3_ez_de_rank,  mgi_symbol %in% hs_ezh2_de_genes_ez_high), 
+            aes(x = rank_id, y = logFC, label = hgnc_symbol), 
+            nudge_x = 10,
+            #  point.padding = 10,
+           # box.padding = 1,
+            min.segment.length = 0,
+            force = 30,
+            size = 4, 
+            colour = "black") +
+  scale_color_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged")) +
+  theme_classic() + 
+  theme( 
+    legend.position =  c(0.7, 0.2), 
+    text = element_text(size = 14))
+
+
+
+```
+
+
+```{r}
+
+human_mb_raw_all <- read.table( "~/Dropbox/GNP_MB_integrate/GSE85217_M_exp_763_MB_SubtypeStudy_TaylorLab.txt", sep ="\t", header = TRUE, quote = "")
+
+```
+
+Scatter plots of known genes 
+
+```{r}
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CCND1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = CCND1, colour =Subtype )) + geom_point()
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "GABRA6")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = GABRA6, colour =Subtype )) + geom_point()
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "PHYHIP")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = PHYHIP, colour =Subtype )) + geom_point()
+
+
+
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = CBX7, colour =Subtype )) + geom_point() + 
+   stat_smooth(method = "lm", col = "black", alpha = 0.5)
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  #dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = CBX7, colour =Subtype )) + geom_point() + 
+   stat_smooth(method = "lm", col = "black", alpha = 0.5) + 
+  facet_wrap(~Subgroup)
+  
+    
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("ATOH1", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = ATOH1 , y = CBX7, colour =Subtype )) + geom_point()
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "GABRD")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = GABRD, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5)
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "GABRD")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+#  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = GABRD, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5) +
+    facet_wrap(~Subgroup)
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "HR")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = HR, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5)
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "HR")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+#  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = HR, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5) +
+      facet_wrap(~Subgroup)
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "KCNJ9")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = KCNJ9, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5)
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "SLC12A5")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = SLC12A5, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5)
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "SLC12A5")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  #dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = SLC12A5, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5) +
+      facet_wrap(~Subgroup)
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "ABLIM1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+  ggplot(aes(x = EZH2 , y = ABLIM1, colour =Subtype )) + geom_point() + 
+     stat_smooth(method = "lm", col = "black", alpha = 0.5)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r, fig.width=6, fig.height= 4}
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "ATOH1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+
+ggplot(aes(x = ATOH1, fill = Subtype )) + 
+#  geom_dotplot(method="histodot", binwidth = 0.08, drop = FALSE) + 
+#  geom_dotplot(method="histodot",stackgroups = TRUE,binpositions = "all") + 
+   geom_dotplot(stackgroups = TRUE, binwidth = 0.08, binpositions = "all", dotsize = 0.9) + 
+    labs(x = "CBX7 RNA abundance", y = "number of tumors", fill = "CBX7 transcript group") +
+  theme_classic() + 
+  theme(legend.position = c(0.8, 0.5), 
+        axis.text.y = element_blank()
+        )
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "ATOH1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+ggplot(aes(x = ATOH1, y = Subtype, colour = Subtype)) + 
+  geom_jitter()
+  
+
+
+
+```
+
+
+## Test differential expression using limma
+
+```{r}
+library(limma)
+library(stringr)
+
+# get names of SHH samples 
+SHH_samples <- human_mb_clinical %>%
+  dplyr::filter(Subgroup == "SHH") %>%
+  dplyr::pull(Study_ID)
+SHH_samples <- as.character(SHH_samples)
+
+
+
+# get EZH2 high vs low groups 
+Ezh2_top_bottom <- human_ezh2_tx_SHH %>%
+  dplyr::filter(EZH2_high_low != "Ezh2 mid") %>%
+  dplyr::select(ptn, EZH2_high_low)
+
+table(Ezh2_top_bottom$EZH2_high_low)
+
+# keep only SHH samples 
+human_MB_SHH <- human_mb_raw_all %>%
+    dplyr::select(Probe.Set.Name, contains("MB_SubtypeStudy")) %>%
+    dplyr::select(Probe.Set.Name, one_of(Ezh2_top_bottom$ptn)  )
+
+
+row.names(human_MB_SHH) <-  human_MB_SHH$Probe.Set.Name
+human_MB_SHH$Probe.Set.Name <- NULL
+
+
+Ezh2_meta <- plyr::mapvalues(colnames(human_MB_SHH), from =Ezh2_top_bottom$ptn, to = Ezh2_top_bottom$EZH2_high_low  )
+Ezh2_meta <- as.factor(Ezh2_meta)
+design <- data.frame(Ezh2_high = (Ezh2_meta == "Ezh2 high"), Ezh2_low =  (Ezh2_meta == "Ezh2 low"))
+design <- as.matrix(design) *1
+
+fit <- lmFit(human_MB_SHH, design)
+#contrast <- makeContrasts(P7 - P21, levels = design)
+#fit2 <- contrasts.fit(fit, contrast)
+fit2 <- eBayes(fit)
+Ezh2_high_low <- topTable(fit2,sort="none",n=Inf)
+
+
+Ezh2_high_low_de <- Ezh2_high_low
+Ezh2_high_low_de$Probe.Set.Name <- row.names(Ezh2_high_low_de)
+
+Ezh2_high_low_de <- Ezh2_high_low_de %>%
+  dplyr::mutate(EZH2_logFC = Ezh2_low - Ezh2_high) %>%
+  dplyr::mutate(Ezh2_de_group =  case_when(
+      EZH2_logFC >= log2(1.4) & adj.P.Val < 0.05   ~ "High_when_EZH2_low",
+      EZH2_logFC <= -log2(1.4) & adj.P.Val < 0.05   ~ "Low_when_EZH2_low",
+      TRUE                           ~ "other"
+    )) 
+
+```
+
+Merge de tables
+```{r}
+human_mb_probe_ens <- human_mb_raw_all %>%
+  dplyr::select(Probe.Set.Name, EnsemblGeneID_from_ensemblv77,HGNC_symbol_from_ensemblv77  )
+
+
+
+Ezh2_high_low_de <-   merge(x = human_mb_probe_ens, y = Ezh2_high_low_de, by.x = "Probe.Set.Name", by.y = "Probe.Set.Name", all = FALSE)
+
+
+table(duplicated(Ezh2_high_low_de$EnsemblGeneID_from_ensemblv77))
+
+histone_k_toc_t50_k27me3_ez_de2  <- merge(x = histone_k_toc_t50, y = Ezh2_high_low_de, by.x = "hg_ensembl_gene_id", by.y = "EnsemblGeneID_from_ensemblv77", all = FALSE)
+
+
+
+```
+
+
+
+
+```{r, fig.height= 7, fig.width= 7}
+
+ezh2_de_alpha <- c("High_when_EZH2_low" = 0.8, "Low_when_EZH2_low" = 0.8, "other" = 0.2)
+hs_ezh2_de_colours  <- c("High_when_EZH2_low" = "orange2", "Low_when_EZH2_low" = "navajowhite4",  "other" =  "grey70")
+hs_ezh2_de_genes_ez_low <- c("Gabra6", "Gabrd", "Cbx7", "Phyhip", "Ablim1", "Cacna1a","Slc12a5" )
+hs_ezh2_de_genes_ez_high <- c( "Atoh1", "Mycn","Ezh2","Top2a", "Melk","Cdk1")
+
+diff_genes <- histone_k_toc_t50 %>%
+  dplyr::filter(max_cat == "P14_P56" ) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+  dplyr::filter(t50_cat %in% c("Mid", "Late")) %>%
+  dplyr::filter(!grepl("_exclude", max_cat_exclude)) %>%
+  dplyr::select(ensembl_gene_id)
+
+
+prolif_genes <- histone_k_toc_t50 %>%
+  dplyr::filter(max_cat == "P0_7" ) %>%
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(group_2 == ">2 log2FC") %>%
+  dplyr::filter(!grepl("_exclude", max_cat_exclude)) %>%
+  dplyr::select(ensembl_gene_id)
+
+
+histone_k_toc_t50_k27me3_ez_de2 %>%
+  
+  dplyr::mutate(Ezh2_high = Winsorize(Ezh2_high, minval = 4, maxval = 10 ) ) %>%
+  dplyr::mutate(Ezh2_low = Winsorize(Ezh2_low, minval = 4, maxval = 10 ) ) %>%
+  ggplot(aes(x = Ezh2_high, y = Ezh2_low, alpha = Ezh2_de_group, colour =Ezh2_de_group  )) + 
+  geom_point(shape = 16) + 
+  geom_point(data = subset(histone_k_toc_t50_k27me3_ez_de2, ensembl_gene_id %in% diff_genes$ensembl_gene_id), 
+             aes( x = Winsorize(Ezh2_high, minval = 4, maxval = 10 ), 
+                  y = Winsorize(Ezh2_low, minval = 4, maxval = 10 )),
+             colour = "red", alpha = 1, size = 0.5 ) +
+   geom_point(data = subset(histone_k_toc_t50_k27me3_ez_de2, ensembl_gene_id %in% prolif_genes$ensembl_gene_id), 
+              aes( x = Winsorize(Ezh2_high, minval = 4, maxval = 10 ), 
+                  y = Winsorize(Ezh2_low, minval = 4, maxval = 10 )),
+             colour = "green", alpha = 1, size = 0.5 ) +
+  geom_point(data =  subset(histone_k_toc_t50_k27me3_ez_de2,  
+                            mgi_symbol %in% hs_ezh2_de_genes_ez_low ), 
+            aes(x = Ezh2_high, y = Ezh2_low), 
+            shape = 1, 
+            size = 4, 
+            colour = "black") + 
+    geom_text_repel(data =  subset(histone_k_toc_t50_k27me3_ez_de2,  mgi_symbol %in% hs_ezh2_de_genes_ez_low), 
+            aes(x = Ezh2_high, y = Ezh2_low, label = hgnc_symbol), 
+            nudge_x = -0.75, 
+            nudge_y = 0.75,
+            force = 30,
+            size = 6, 
+            colour = "black") + 
+#      geom_text_repel(data =  subset(histone_k_toc_t50_k27me3_ez_de2,  mgi_symbol %in% hs_ezh2_de_genes_ez_high), 
+#            aes(x = Ezh2_high, y = Ezh2_low, label = hgnc_symbol), 
+#            nudge_x = 0.75, 
+#            nudge_y = -0.75,
+#            force = 30,
+#            size = 6, 
+#            colour = "black") + 
+  scale_alpha_manual(values = ezh2_de_alpha) + 
+  scale_colour_manual(values = hs_ezh2_de_colours, labels = gsub("_", " ",names(hs_ezh2_de_colours)) ) + 
+  labs(x = "Average RNA Abundance for EZH2 High Tumors", 
+       y = "Average RNA Abundance for EZH2 Low Tumors" , 
+       colour = "EZH2 transcript group") +
+    theme_classic() + 
+    theme(legend.position = c(0.8, 0.15),
+          text = element_text(size = 16),
+          axis.title.y = element_text(colour = hs_ezh2_de_colours[1]), 
+          axis.title.x = element_text(colour = hs_ezh2_de_colours[2])
+        ) + 
+  guides(alpha=FALSE)
+
+```
+
+Quantify the fold change
+
+```{r, fig.height= 4, fig.width= 4}
+
+table(histone_k_toc_t50_k27me3_ez_de2$max_cat_exclude)
+
+
+
+avg_fc_ezh2_group <- histone_k_toc_t50_k27me3_ez_de2 %>% 
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(ensembl_gene_id %in% diff_genes$ensembl_gene_id | ensembl_gene_id %in% prolif_genes$ensembl_gene_id) %>%
+  dplyr::group_by(max_cat_exclude) %>%
+  dplyr::summarise(EZH2_logFC = mean(EZH2_logFC))
+
+
+ezh2_de_alpha <- c("High_when_EZH2_low" = 0.8, "Low_when_EZH2_low" = 0.8, "other" = 0.2)
+hs_ezh2_de_colours  <- c("High_when_EZH2_low" = "orange2", "Low_when_EZH2_low" = "navajowhite4",  "other" =  "grey70")
+ezh2_de_alpha <- c("High_when_EZH2_low" = 0.8, "Low_when_EZH2_low" = 0.8, "other" = 0.5)
+
+histone_k_toc_t50_k27me3_ez_de2 %>% 
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(ensembl_gene_id %in% diff_genes$ensembl_gene_id | ensembl_gene_id %in% prolif_genes$ensembl_gene_id) %>%
+  ggplot(aes(x = max_cat_exclude, y =  EZH2_logFC)) +
+  geom_violin() + 
+  geom_jitter( aes( colour = Ezh2_de_group, fill = Ezh2_de_group, alpha = Ezh2_de_group ), 
+               size = 0.2)  +
+  geom_point(data = avg_fc_ezh2_group) + 
+  scale_alpha_manual(values = ezh2_de_alpha) + 
+  scale_colour_manual(values = hs_ezh2_de_colours, labels = gsub("_", " ",names(hs_ezh2_de_colours)) )  + 
+    scale_x_discrete(labels = c("P0_P7" = "Proliferation genes", "P14_P56" = "Differentiation genes")) +
+
+labs(x = "GNP gene grouping",   y = TeX("$log_2\\frac{$Expression Ezh2 low tumors (30%)$}{$Expression Ezh2 high tumors (30%)}")) +
+     theme_classic() + 
+  theme(legend.position = "none")
+
+  #facet_wrap(~group_2)
+
+```
+
+pvalue with t test
+```{r}
+# Subset the data for the groups you're comparing
+prolif_data <- histone_k_toc_t50_k27me3_ez_de2 %>% 
+  dplyr::filter(max_cat_exclude == "P0_P7") %>% 
+  dplyr::filter(ensembl_gene_id %in% diff_genes$ensembl_gene_id | ensembl_gene_id %in% prolif_genes$ensembl_gene_id)
+
+diff_data <- histone_k_toc_t50_k27me3_ez_de2 %>% 
+  dplyr::filter(max_cat_exclude == "P14_P56") %>% 
+  dplyr::filter(ensembl_gene_id %in% diff_genes$ensembl_gene_id | ensembl_gene_id %in% prolif_genes$ensembl_gene_id)
+
+# Perform a t-test
+t_test_result <- t.test(prolif_data$EZH2_logFC, diff_data$EZH2_logFC)
+
+# Extract the p-value
+p_value <- t_test_result$p.value
+
+```
+
+```{r}
+
+
+# Assuming you've already calculated the p-value
+# Example comparison data
+comparison_data <- data.frame(
+  group1 = "P0_P7",
+  group2 = "P14_P56",
+  p = signif(p_value, digits = 3),  # Use the p-value from your t-test
+  y.position = max(histone_k_toc_t50_k27me3_ez_de2$EZH2_logFC) + 0.2  # Adjust this value based on your data
+)
+
+# Plot with p-value bracket
+fc_prolif_diff_violin_plot <- ggplot(data = histone_k_toc_t50_k27me3_ez_de2 %>%
+         dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+         dplyr::filter(ensembl_gene_id %in% diff_genes$ensembl_gene_id | ensembl_gene_id %in% prolif_genes$ensembl_gene_id),
+       aes(x = max_cat_exclude, y = EZH2_logFC)) +
+  geom_violin() +
+  geom_jitter(aes(colour = Ezh2_de_group, fill = Ezh2_de_group, alpha = Ezh2_de_group), size = 0.2) +
+  geom_point(data = avg_fc_ezh2_group) +
+  scale_alpha_manual(values = ezh2_de_alpha) +
+  scale_colour_manual(values = hs_ezh2_de_colours, labels = gsub("_", " ", names(hs_ezh2_de_colours))) +
+  scale_x_discrete(labels = c("P0_P7" = "Proliferation genes", "P14_P56" = "Differentiation genes")) +
+  labs(x = "GNP gene grouping", y = TeX("$log_2\\frac{$Expression Ezh2 low tumors (30%)$}{$Expression Ezh2 high tumors (30%)}")) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  stat_pvalue_manual(comparison_data, 
+                     label = "p",  # Show the p-value
+                     xmin = "group1", 
+                     xmax = "group2", 
+                     y.position = "y.position", 
+                     tip.length = 0.01)  # Adjust the tip length of the bracket
+
+
+print(fc_prolif_diff_violin_plot)
+
+```
+
+
+
+
+
+
+```{r}
+table(histone_k_toc_t50_k27me3_ez_de2$Ezh2_de_group)
+
+histone_k_toc_t50_k27me3_ez_de2 %>%
+  dplyr::filter(Ezh2_de_group  == "High_when_EZH2_low") %>%
+  dplyr::arrange(desc(EZH2_logFC )) %>%
+  dplyr::select(mgi_symbol, EZH2_logFC) %>%
+  dplyr::do(head(., 50))
+
+histone_k_toc_t50_k27me3_ez_de2 %>%
+  dplyr::filter(Ezh2_de_group  == "Low_when_EZH2_low") %>%
+    dplyr::filter(max_cat == "P0_7") %>%
+  dplyr::filter(avg_fc > 2)  %>%
+  dplyr::arrange(EZH2_logFC ) %>%
+  dplyr::select(mgi_symbol, EZH2_logFC) %>%
+  dplyr::do(head(., 50))
+
+
+```
+
+
+A histogram dot plot to show the variation in EZH2 transcript abundance
+
+Code for following segment available from here 
+https://stackoverflow.com/questions/44991607/how-do-i-label-the-dots-of-a-geom-dotplot-in-ggplot2
+
+
+```{r, fig.width=6, fig.height= 4}
+
+ezh2_dot_data <- human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "ABLIM1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )%>%
+  dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  dplyr::select(-starts_with("X"), -starts_with("c_"))
+  
+
+bw <- 0.1
+
+ezh2_dot <- ezh2_dot_data %>%  
+ ggplot(aes(x = EZH2, fill = Subtype, colour = EZH2_cat )) + 
+#  geom_dotplot(method="histodot", binwidth = 0.1, drop = FALSE) + 
+   geom_dotplot(stackgroups = TRUE, binwidth = bw, binpositions = "all", dotsize = 1) + 
+#  geom_mark_rect() +
+  labs(x = "EZH2 RNA abundance", y = "number of tumors", fill = "EZH2 transcript group") +
+  theme_classic() + 
+  theme(legend.position = c(0.2, 0.5), 
+        axis.text.y = element_blank()
+        )
+
+built <- ggplot_build(ezh2_dot)
+point.pos <- built$data[[1]]
+
+idx <- order(ezh2_dot_data$EZH2)
+ezh2_dot_data2 <- ezh2_dot_data[idx,]
+
+# Get the dimensions of the target device in pixels
+size <- dev.size(units = 'px')
+# Get the range of x and y domain values
+extent <- with(built$layout$panel_params[[1]], abs(c(diff(x.range), diff(y.range))))
+ezh2_dot_data2$ytext <- (size[1] / size[2]) * (extent[2] / extent[1]) * point.pos$stackpos * bw
+ezh2_dot_data2$xtext <- point.pos$x
+
+
+# this needs to be fixed, search x val for different category and split  
+highest_low_vals <-  ezh2_dot_data2 %>%
+  filter(EZH2_cat == "EZH2 low") %>%
+  dplyr::arrange(desc(EZH2)) %>%
+  dplyr::do(head(.,3)) %>%
+  dplyr::pull(Study_ID) 
+
+ezh2_dot_data3 <- ezh2_dot_data2 %>%
+   dplyr::filter(EZH2_cat != "EZH2 mid") %>% 
+   dplyr::filter(! (Study_ID %in% highest_low_vals)) 
+#  dplyr::mutate(EZH2_cat = ifelse(Study_ID %in% highest_low_vals,"EZH2 extra",  EZH2_cat)) 
+
+ezh2_dot_data_leftover <- ezh2_dot_data2 %>%
+    dplyr::filter(EZH2_cat != "EZH2 mid") %>% 
+    dplyr::filter(Study_ID %in% highest_low_vals) 
+
+ezh2_dot_data_leftover2 <- ezh2_dot_data_leftover
+ezh2_dot_data_leftover2$xtext <- ezh2_dot_data_leftover2$xtext - 0.01 
+ezh2_dot_data_leftover <- rbind(ezh2_dot_data_leftover, ezh2_dot_data_leftover2)
+
+
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = NA)
+
+
+ezh2_dot_data2 %>%
+  ggplot(aes( x = xtext, y = ytext, fill = EZH2_cat, shape = Subtype)) + 
+
+  geom_mark_hull(
+                data = ezh2_dot_data3,
+                 aes( x = xtext, y = ytext, group = EZH2_cat, fill = EZH2_cat),
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =-100
+                ) +
+  geom_mark_hull(data = ezh2_dot_data_leftover, 
+                 aes( x = xtext, y = ytext),
+                 colour = NA,
+                 alpha = 0.8,
+#                position = position_nudge(x = 0.02),  
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"))+
+    geom_point(size = 2) +
+  scale_fill_manual(values = ezh2_tumor_cols) + 
+  labs(x = "EZH2 RNA abundance", y = "number of tumors", fill = "EZH2 transcript group", shape = "Cavalli et al SHH MB class") + 
+    theme_classic() + 
+  theme(legend.position = c(0.2, 0.5), 
+        axis.text.y = element_blank()
+        )
+ 
+#without the subtypes
+ezh2_dot_data2 %>%
+  ggplot(aes( x = xtext, y = ytext, fill = EZH2_cat)) + 
+
+  geom_mark_hull(
+                data = ezh2_dot_data3,
+                 aes( x = xtext, y = ytext, group = EZH2_cat, fill = EZH2_cat),
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =-100
+                ) +
+  geom_mark_hull(data = ezh2_dot_data_leftover, 
+                 aes( x = xtext, y = ytext),
+                 colour = NA,
+                 alpha = 0.8,
+#                position = position_nudge(x = 0.02),  
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"))+
+    geom_point(size = 2) +
+  scale_fill_manual(values = ezh2_tumor_cols) + 
+  labs(x = "EZH2 RNA abundance", y = "number of tumors", fill = "EZH2 transcript group", shape = "Cavalli et al SHH MB class") + 
+    theme_classic() + 
+  theme(legend.position = c(0.2, 0.5), 
+        axis.text.y = element_blank()
+        )
+  
+ 
+
+
+
+# Order rows of mtcars by hp
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "ABLIM1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+ggplot(aes(x = EZH2, y = Subtype, colour = Subtype)) + 
+  geom_jitter()
+  
+
+
+
+```
+
+
+```{r, fig.height= 4, fig.width= 4}
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = NA)
+
+comparison_gene <- "CBX7"
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+    dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+    dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  ggplot(aes(x = EZH2 , y = CBX7, shape =Subtype,  group = EZH2_cat, fill = EZH2_cat  )) +
+      geom_mark_hull(
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =-5
+                ) +
+      geom_point() +
+      scale_fill_manual(values = ezh2_tumor_cols) + 
+    labs(x = "EZH2 RNA abundance", y = "CBX7 RNA Abundance") +
+      theme_classic() + 
+    theme(legend.position =  "none", 
+          text = element_text(size = 16)) 
+
+
+```
+```{r}
+cbx_human <-human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) 
+
+row.names(cbx_human) <- cbx_human$variable
+cbx_human$variable <- NULL
+
+```
+
+```{r, fig.height= 4, fig.width= 4}
+library(stringr)
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = alpha("white", 0))
+
+comparison_gene <- "CBX7"
+comparison_gene_label <- bquote(bold(.(comparison_gene))~"RNA"~"Abundance")
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", comparison_gene)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+    dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+    dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  ggplot(aes_string(x = "EZH2" , y = comparison_gene, shape ="Subtype",  group = "EZH2_cat", fill = "EZH2_cat"  )) +
+      geom_mark_hull(
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =-5
+                ) +
+      geom_point() +
+      scale_fill_manual(values = ezh2_tumor_cols) + 
+    labs(x = "EZH2 RNA abundance", y = comparison_gene_label) +
+      theme_classic() + 
+    theme(legend.position =  "none", 
+          text = element_text(size = 16)) 
+
+
+```
+
+
+```{r, fig.height= 4, fig.width= 4}
+library(stringr)
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = alpha("white", 0))
+
+comparison_gene <- "ABLIM1"
+comparison_gene_label <- bquote(bold(.(comparison_gene))~"RNA"~"Abundance")
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", comparison_gene)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+    dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+    dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  ggplot(aes_string(x = "EZH2" , y = comparison_gene, shape ="Subtype",  group = "EZH2_cat", fill = "EZH2_cat"  )) +
+      geom_mark_hull(
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =-5
+                ) +
+      geom_point() +
+      scale_fill_manual(values = ezh2_tumor_cols) + 
+    labs(x = "EZH2 RNA abundance", y = comparison_gene_label) +
+      theme_classic() + 
+    theme(legend.position =  "none", 
+          text = element_text(size = 16)) 
+
+
+```
+
+```{r}
+ablim1_human <-human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "ABLIM1")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) 
+
+row.names(ablim1_human) <- ablim1_human$variable
+ablim1_human$variable <- NULL
+
+cor(ablim1_human)
+
+```
+
+
+
+```{r, fig.height= 4, fig.width= 4}
+library(stringr)
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = alpha("white", 0))
+
+comparison_gene <- "GABRD"
+comparison_gene_label <- bquote(bold(.(comparison_gene))~"RNA"~"Abundance")
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", comparison_gene)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+    dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+    dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  ggplot(aes_string(x = "EZH2" , y = comparison_gene, shape ="Subtype",  group = "EZH2_cat", fill = "EZH2_cat"  )) +
+      geom_mark_hull(
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =-5
+                ) +
+      geom_point() +
+      scale_fill_manual(values = ezh2_tumor_cols) + 
+    labs(x = "EZH2 RNA abundance", y = comparison_gene_label) +
+      theme_classic() + 
+    theme(legend.position =  "none", 
+          text = element_text(size = 16)) 
+
+
+```
+
+
+
+
+```{r, fig.height= 4, fig.width= 4}
+library(stringr)
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = alpha("white", 0))
+
+comparison_gene <- "PHYHIP"
+comparison_gene_label <- bquote(bold(.(comparison_gene))~"RNA"~"Abundance")
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", comparison_gene)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+    dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+    dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  ggplot(aes_string(x = "EZH2" , y = comparison_gene, shape ="Subtype",  group = "EZH2_cat", fill = "EZH2_cat"  )) +
+      geom_mark_hull(
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =1
+                ) +
+      geom_point() +
+      scale_fill_manual(values = ezh2_tumor_cols) + 
+      scale_colour_manual(values = ezh2_tumor_cols) + 
+    labs(x = "EZH2 RNA abundance", y = comparison_gene_label) +
+      theme_classic() + 
+    theme(legend.position =  "none", 
+          text = element_text(size = 16)) 
+
+
+```
+```{r, fig.height= 4, fig.width= 4}
+library(stringr)
+ezh2_tumor_cols <- c("EZH2 low" = "orange2", "EZH2 high"  = "navajowhite4", "EZH2 mid" = alpha("white", 0))
+
+comparison_gene <- "GAS7"
+comparison_gene_label <- bquote(bold(.(comparison_gene))~"RNA"~"Abundance")
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", comparison_gene)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+    dplyr::rename(Study_ID = variable) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+    dplyr::mutate(EZH2_cat = case_when( 
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 low"]  ~ "EZH2 low",
+    Study_ID  %in%  Ezh2_top_bottom$ptn[Ezh2_top_bottom$EZH2_high_low == "Ezh2 high"]  ~ "EZH2 high",
+    TRUE   ~ "EZH2 mid"  
+    )) %>%
+  ggplot(aes_string(x = "EZH2" , y = comparison_gene, shape ="Subtype",  group = "EZH2_cat", fill = "EZH2_cat"  )) +
+      geom_mark_hull(
+                 colour = NA,
+                 alpha = 0.8,
+                 expand = unit(2, "mm"), 
+                 radius = unit(2, "mm"),
+                 concavity =1
+                ) +
+      geom_point() +
+      scale_fill_manual(values = ezh2_tumor_cols) + 
+      scale_colour_manual(values = ezh2_tumor_cols) + 
+    labs(x = "EZH2 RNA abundance", y = comparison_gene_label) +
+      theme_classic() + 
+    theme(legend.position =  "none", 
+          text = element_text(size = 16)) 
+
+
+```
+
+```{r, fig.width=3, fig.height= 2}
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+ggplot(aes(x = CBX7, fill = Subtype )) + 
+#  geom_dotplot(method="histodot", binwidth = 0.08, drop = FALSE) + 
+#  geom_dotplot(method="histodot", drop = FALSE) + 
+   geom_dotplot(stackgroups = TRUE, binwidth = 0.08, binpositions = "all", dotsize = 0.9) + 
+    labs(x = "CBX7 RNA abundance", y = "number of tumors", fill = "CBX7 transcript group") +
+  theme_classic() + 
+  theme(legend.position = c(0.8, 0.5), 
+        axis.text.y = element_blank()
+        )
+
+
+human_mb_raw_all %>% 
+  dplyr::filter(HGNC_symbol_from_ensemblv77 %in% c("EZH2", "CBX7")) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, contains("MB_SubtypeStudy")) %>%
+  tidyr::gather( variable, value, -HGNC_symbol_from_ensemblv77)   %>%
+  tidyr::spread(HGNC_symbol_from_ensemblv77, value ) %>%
+  dplyr::left_join(., human_mb_clinical, by = c("variable" =  "Study_ID") ) %>%
+  dplyr::filter(Subgroup == "SHH" )  %>%
+ggplot(aes(x = CBX7, y = Subtype, colour = Subtype)) + 
+  geom_jitter()
+  
+
+
+
+```
+
+
+```{r, fig.width=5 , fig.height= 5}
+
+
+diff_human_set <- histone_k_toc_t50_k27me3_ez_de2 %>% 
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(ensembl_gene_id %in% diff_genes$ensembl_gene_id | mgi_symbol == "Ezh2") %>% 
+  dplyr::select( Probe.Set.Name)
+  
+  
+
+shh_mb_samples <- human_mb_clinical %>%
+  dplyr::filter(Subgroup == "SHH" ) %>%
+  dplyr::select(Study_ID)
+
+
+
+diff_genes_human_ezh2_MB <- human_mb_raw_all %>% 
+  dplyr::filter(Probe.Set.Name %in% diff_human_set$Probe.Set.Name) %>%
+  dplyr::filter(!is.na(HGNC_symbol_from_ensemblv77)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, all_of(shh_mb_samples$Study_ID) ) %>%
+  dplyr::distinct(HGNC_symbol_from_ensemblv77, .keep_all = TRUE)
+
+
+row.names(diff_genes_human_ezh2_MB) <- diff_genes_human_ezh2_MB$HGNC_symbol_from_ensemblv77
+diff_genes_human_ezh2_MB$HGNC_symbol_from_ensemblv77 <- NULL
+
+correlation_ezh2_MB_human <- cor(t(diff_genes_human_ezh2_MB))
+correlation_ezh2_MB_human <- as.data.frame(correlation_ezh2_MB_human)
+correlation_ezh2_MB_human$gene <- row.names(correlation_ezh2_MB_human)
+
+correlation_ezh2_MB_human <- correlation_ezh2_MB_human %>%
+  dplyr::select(gene, EZH2) %>%
+  dplyr::mutate(GNP_group = "differentiation")
+
+
+prolif_human_set <- histone_k_toc_t50_k27me3_ez_de2 %>% 
+  dplyr::filter(group_1 == "Dynically expressed in granule neuron lineage") %>%
+  dplyr::filter(ensembl_gene_id %in% prolif_genes$ensembl_gene_id | mgi_symbol == "Ezh2") %>% 
+  dplyr::select( Probe.Set.Name)
+  
+     
+
+prolif_genes_human_ezh2_MB <- human_mb_raw_all %>% 
+  dplyr::filter(Probe.Set.Name %in% prolif_human_set$Probe.Set.Name) %>%
+  dplyr::filter(!is.na(HGNC_symbol_from_ensemblv77)) %>%
+  dplyr::select(HGNC_symbol_from_ensemblv77, all_of(shh_mb_samples$Study_ID) ) %>%
+  dplyr::distinct(HGNC_symbol_from_ensemblv77, .keep_all = TRUE)
+ 
+
+row.names(prolif_genes_human_ezh2_MB) <- prolif_genes_human_ezh2_MB$HGNC_symbol_from_ensemblv77
+prolif_genes_human_ezh2_MB$HGNC_symbol_from_ensemblv77 <- NULL
+
+prolif_correlation_ezh2_MB_human <- cor(t(prolif_genes_human_ezh2_MB))
+prolif_correlation_ezh2_MB_human <- as.data.frame(prolif_correlation_ezh2_MB_human)
+prolif_correlation_ezh2_MB_human$gene <- row.names(prolif_correlation_ezh2_MB_human)
+
+prolif_correlation_ezh2_MB_human <- prolif_correlation_ezh2_MB_human %>%
+  dplyr::select(gene, EZH2) %>%
+  dplyr::mutate(GNP_group = "proliferation")
+
+
+correlation_ezh2_MB_human <- rbind(correlation_ezh2_MB_human, prolif_correlation_ezh2_MB_human)
+
+correlation_ezh2_MB_human <- correlation_ezh2_MB_human %>%
+  dplyr::filter(gene != "EZH2")
+
+hs_ezh2_de_genes_ez_low <- c("GABRA6", "CBX7", "PHYHIP", "ABLIM1", "CACNA1A","SLCL2A5", "GAS7" )
+hs_ezh2_de_genes_ez_high <- c( "ATOH1", "MYCN","CDK2","TOP2A", "MELK","CCND2")
+
+
+mean_correlation_ezh2_MB_human <- correlation_ezh2_MB_human %>%
+  dplyr::group_by(GNP_group) %>%
+  dplyr::summarise(EZH2 = mean(EZH2))
+
+mean_correlation_ezh2_MB_human$GNP_group <- factor(mean_correlation_ezh2_MB_human$GNP_group, levels = c("proliferation", "differentiation"))
+
+# Add jittered positions to the data frame
+correlation_ezh2_MB_human_jittered <- correlation_ezh2_MB_human %>%
+  mutate(jittered_x = jitter(as.numeric(as.factor(GNP_group)), amount = 0.4))
+
+correlation_ezh2_MB_human_jittered$GNP_group <- factor(correlation_ezh2_MB_human_jittered$GNP_group, levels = c("proliferation", "differentiation"))
+
+set.seed(42)
+# Create the plot
+ggplot(correlation_ezh2_MB_human_jittered, aes(x = GNP_group, y = EZH2)) + 
+  geom_violin() +
+  geom_point(aes(x = jittered_x, y = EZH2), size = 0.4, 
+             colour = "azure4") +
+  geom_hline(yintercept = 0, linetype='dotted') +
+  geom_text_repel(data = correlation_ezh2_MB_human_jittered  %>% 
+                    dplyr::filter(gene %in% c(hs_ezh2_de_genes_ez_low, hs_ezh2_de_genes_ez_high)),
+                    aes(x = jittered_x, y = EZH2, label = gene), 
+                  force = 30,
+                  size = 5, 
+                  box.padding = 1, 
+                  #max.overlaps = Inf,
+                  min.segment.length =	0.5, 
+                  colour = "black") +
+   geom_point(data = correlation_ezh2_MB_human_jittered  %>% 
+                    dplyr::filter(gene %in% c(hs_ezh2_de_genes_ez_low, hs_ezh2_de_genes_ez_high)),
+                    aes(x = jittered_x, y = EZH2, label = gene),
+            shape = 1, 
+            size = 4, 
+            colour = "red") + 
+  geom_point(data = mean_correlation_ezh2_MB_human, 
+             aes(x = GNP_group, y = EZH2), 
+              shape = 5, 
+             size = 4, 
+             colour = "blue") +
+  scale_x_discrete(labels = c("proliferation" = "Proliferation genes", "differentiation" = "Differentiation genes")) +
+   labs(y = "Pearson corrleation compared to Ezh2", x = "GNP gene group") +
+theme_classic() + 
+  theme(axis.text=element_text(size=12),
+        axis.title=element_text(size=12))
+ 
+
+
+correlation_ezh2_MB_human %>%
+  dplyr::filter(gene %in% c("CBX7", "ABLIM1", "GAS7", "PHYHIP" ))
+ 
+   
+```
+
+non normal distribution so use wilcoxian rank test 
+
+```{r}
+wilcox_test_result <- wilcox.test(EZH2 ~ GNP_group, data = correlation_ezh2_MB_human)
+
+# View the results of the Wilcoxon test
+wilcox_test_result
+
+
+# Create a data frame for the comparison
+p_value_df <- data.frame(
+  group1 = "proliferation",
+  group2 = "differentiation",
+  y.position = max(correlation_ezh2_MB_human_jittered$EZH2, na.rm = TRUE) + 0.1,  # Adjust as needed for bracket position
+  p = wilcox_test_result$p.value
+)
+
+p_value_df <- p_value_df %>%
+  mutate(p = formatC(p, digits = 3, format = "e"))  # Scientific notation with 3 significant figures
+
+
+# Set factor levels to ensure correct ordering in the plot
+correlation_ezh2_MB_human_jittered$GNP_group <- factor(correlation_ezh2_MB_human_jittered$GNP_group, 
+                                                       levels = c("proliferation", "differentiation"))
+
+# Set the correct order for factor levels in correlation data
+correlation_ezh2_MB_human_jittered <- correlation_ezh2_MB_human %>%
+  mutate(GNP_group = factor(GNP_group, levels = c("proliferation", "differentiation")),
+         jittered_x = ifelse(GNP_group == "proliferation", 1, 2) + runif(nrow(correlation_ezh2_MB_human), -0.4, 0.4))  # Jitter around 1 and 2
+
+# Ensure correct ordering for mean data and set x-position manually
+mean_correlation_ezh2_MB_human <- mean_correlation_ezh2_MB_human %>%
+  mutate(GNP_group = factor(GNP_group, levels = c("proliferation", "differentiation")),
+         x_position = ifelse(GNP_group == "proliferation", 1, 2))
+
+# Generate the plot with the correct x-positions for jittered and mean points
+cor_ezh2_mb_summary_plot <- ggplot(correlation_ezh2_MB_human_jittered, aes(x = GNP_group, y = EZH2)) + 
+  geom_violin() +
+  geom_point(aes(x = jittered_x, y = EZH2), size = 0.4, colour = "azure4") +
+  geom_hline(yintercept = 0, linetype = 'dotted') +
+  geom_text_repel(data = correlation_ezh2_MB_human_jittered %>% 
+                    dplyr::filter(gene %in% c(hs_ezh2_de_genes_ez_low, hs_ezh2_de_genes_ez_high)),
+                  aes(x = jittered_x, y = EZH2, label = gene), 
+                  force = 30,
+                  size = 5, 
+                  box.padding = 1, 
+                  min.segment.length = 0.5, 
+                  colour = "black") +
+  geom_point(data = correlation_ezh2_MB_human_jittered %>% 
+               dplyr::filter(gene %in% c(hs_ezh2_de_genes_ez_low, hs_ezh2_de_genes_ez_high)),
+             aes(x = jittered_x, y = EZH2, label = gene),
+             shape = 1, 
+             size = 4, 
+             colour = "red") + 
+  # Use x_position for mean points to align with categories
+  geom_point(data = mean_correlation_ezh2_MB_human, 
+             aes(x = x_position, y = EZH2), 
+             shape = 18, 
+             size = 4,
+             fill = "blue",
+             colour = "blue") +
+  scale_x_discrete(labels = c("proliferation" = "Proliferation genes", "differentiation" = "Differentiation genes")) +
+  labs(y = "Pearson correlation compared to EZH2", x = "GNP gene group") +
+  theme_classic() + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12)) +
+  stat_pvalue_manual(p_value_df, 
+                     label = "p", 
+                     xmin = "group1", 
+                     xmax = "group2", 
+                     y.position = "y.position", 
+                     tip.length = 0.01)  # Adjust tip length for aesthetics
+
+print(cor_ezh2_mb_summary_plot)
+
+```
+
+```{r, fig.height= 5, fig.width= 10}
+
+
+# Adjust x-axis text size in fc_prolif_diff_violin_plot to match cor_ezh2_mb_summary_plot
+fc_prolif_diff_violin_plot <- fc_prolif_diff_violin_plot + 
+  theme(axis.text.x = element_text(size = 12))  # Adjust 'size' to match the desired label size
+
+# Add "A)" and "B)" labels to the plots
+combined_plot <- fc_prolif_diff_violin_plot + cor_ezh2_mb_summary_plot +
+  plot_annotation(tag_levels = 'A', tag_suffix = ")")  # Adds a ")" after each tag
+
+print(combined_plot)
+
+# Save the combined plot with specified dimensions
+ggsave("~/Dropbox/Q_research/EZH2 final/figures/figures from R/figs7_combined_plot.png", combined_plot, width = 10, height = 5, units = "in")
+
+
+```
+
+
+```{r, fig.width= 6, fig.height=6}
+library(scales)
+
+gene_num_bar <- histone_k_toc_t50_k27me3_ez_de2 %>%
+  dplyr::filter(Ezh2_de_group != "other") %>%
+  dplyr::mutate(max_t50_cat = gsub("Max_" , "Max at " , max_t50_cat)  ) %>%
+  dplyr::mutate(max_t50_cat = gsub("P0_7" , "P0_P7" , max_t50_cat)  ) %>%
+  dplyr::mutate(max_t50_cat = gsub("t50_" , "   " , max_t50_cat)  ) %>%
+  dplyr::mutate(max_t50_cat = gsub("_" , "-" , max_t50_cat)  ) %>%
+  
+ggplot(aes(x = max_t50_cat, group = Ezh2_de_group, fill = Ezh2_de_group)) +  
+  geom_bar() + 
+    scale_fill_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged")) +
+    labs(y = "gene number", 
+       x =  "GNP expression time course group", 
+       fill = "Differential\nexpressison" ) +
+  theme_classic() + 
+  coord_flip() + 
+    #theme(legend.position=c(0.7, 0.2), 
+  theme(legend.position="bottom", 
+  #theme(legend.position=c(0,0),
+        legend.justification = c(0, 0),
+          text = element_text(size = 14),
+  panel.grid.major.y = element_line(colour="grey", size=0.5)) +
+    guides(fill=guide_legend(nrow=2,byrow=TRUE))
+ 
+gene_num_bar         
+
+time_ez_de_summary <- histone_k_toc_t50_k27me3_ez_de2 %>%
+  dplyr::filter(Ezh2_de_group != "other")  %>%
+  dplyr::group_by( max_t50_cat, Ezh2_de_group) %>%
+  dplyr::summarise(n = length(max_t50_cat)) %>%
+  tidyr::spread(Ezh2_de_group, n) %>%
+  dplyr::mutate(fold_enrich = log2(Low_when_EZH2_low/ High_when_EZH2_low))
+  
+time_ez_de_summary$high_pval <- mapply(function(x1,x2) 
+  phyper(x1, sum(time_ez_de_summary$High_when_EZH2_low), sum(time_ez_de_summary$Low_when_EZH2_low), x1 + x2, lower.tail=FALSE), 
+       time_ez_de_summary$High_when_EZH2_low, 
+       time_ez_de_summary$Low_when_EZH2_low)
+  
+time_ez_de_summary$low_pval <- mapply(function(x1,x2) 
+  phyper(x1, sum(time_ez_de_summary$High_when_EZH2_low), sum(time_ez_de_summary$Low_when_EZH2_low), x1 + x2, lower.tail=FALSE), 
+       time_ez_de_summary$Low_when_EZH2_low, 
+       time_ez_de_summary$High_when_EZH2_low)
+  
+time_ez_de_summary$min_pval <- apply(time_ez_de_summary[, c("high_pval","low_pval")], 1, min)
+
+
+
+time_ez_de_summary <- time_ez_de_summary %>%
+  dplyr::mutate(abs_fold_enrich = abs(fold_enrich)) %>%
+  dplyr::mutate(enrich_direction = case_when(
+      fold_enrich > 1       ~  "Low_when_EZH2_low",
+      fold_enrich < -1      ~  "High_when_EZH2_low",
+      TRUE      ~  "other"))  %>%
+  dplyr::mutate(pval = -log10(min_pval) )
+
+time_ez_de_summary
+
+fold_enrich_bar <- time_ez_de_summary %>%
+ggplot(aes(x = max_t50_cat, y = abs_fold_enrich, fill = enrich_direction)) +  
+  geom_bar(stat = "identity") +
+    scale_fill_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged"), 
+                     guide=FALSE ) +
+  scale_y_continuous(labels =  math_format(2^.x)) +  
+    labs(y = "Log2 fold enrichment", 
+       x =  "GNP expression time course group", 
+       fill = "Differential expressison" ) +
+  theme_classic() + 
+  coord_flip() + 
+    theme(legend.position=c(0.7, 0.2),  
+          text = element_text(size = 12),
+          #axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          plot.background=element_blank()
+          ) 
+
+
+
+time_ez_de_summary %>%
+ggplot(aes(x = max_t50_cat, y = -log10(min_pval), fill = enrich_direction)) +  
+  geom_point() + 
+    scale_fill_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged")) +
+    labs(y = "gene number", 
+       x =  "GNP expression time course group", 
+       fill = "Differential expressison" ) +
+  theme_classic() + 
+  coord_flip() + 
+    theme(legend.position="none", 
+          text = element_text(size = 12)) 
+```
+
+
+```{r, fig.width= 1.5, fig.height=3}
+
+fold_enrich_dot <- time_ez_de_summary %>%
+ggplot(aes(x = max_t50_cat, y = abs_fold_enrich,  size = pval, colour = enrich_direction)) +  
+  geom_point(stat = "identity") +
+    scale_colour_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged"), 
+                     guide=FALSE ) +
+  scale_y_continuous(labels =  math_format(2^.x)) +  
+  scale_size_continuous(breaks = c(2, 5, seq(from = 0, to = 40, by = 10))) +
+    labs(y = "Log2 fold enrichment", 
+       x =  "GNP expression time course group", 
+       fill = "Differential expressison",
+       size = "-log10\np-val") +
+  theme_classic() + 
+  coord_flip() + 
+    theme(legend.position="bottom",
+          legend.direction = "horizontal",
+          text = element_text(size = 14),
+          #axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.major.y = element_line(colour="grey", size=0.5),
+          plot.background=element_blank()
+          ) + 
+    guides(size=guide_legend(nrow=2,byrow=TRUE))
+fold_enrich_dot
+
+```
+
+
+
+```{r, fig.width= 8.2, fig.height=6}
+library(ggpubr)
+ggarrange(gene_num_bar ,fold_enrich_dot,
+          ncol = 2, nrow = 1, align = "h", widths = c(2.5,1))
+
+
+
+```
+
+
+Now repeat with the collapsed groups 
+
+
+```{r, fig.width= 8, fig.height=6}
+library(scales)
+# make new varibale to 
+
+
+ez_de2_changers <- histone_k_toc_t50_k27me3_ez_de2 %>%
+  dplyr::filter(Ezh2_de_group != "other") %>%
+  #dplyr::filter(cat_avg_fc ==">2 log2FC") %>%
+  #dplyr::filter(cat_avg_fc =="1-2 log2FC") %>%
+  dplyr::filter(max_cat_exclude %in% c("E15", "P0_P7", "P14_P56", "other")) %>%
+  dplyr::filter(!(group_1 %in% c("Cell cycle", "Contaminated genes"))) %>%
+  dplyr::filter(max_cat %in% c("P0_7", "P14_P56", "unchanged")) %>% # this line reduces the size of  the figure    substantially to make it clearer, comment out to see the whole figure. 
+  dplyr::mutate(max_cat_mod = ifelse(max_cat %in% c("E15", "P0_7", "P14_P56"), paste(max_cat, cat_avg_fc) ,max_cat )) %>%
+  dplyr::mutate(max_cat_mod = gsub("P14_P56" , "Differentiation genes\n" , max_cat_mod)  ) %>%
+  dplyr::mutate(max_cat_mod = gsub("P0_7" , "Proliferation genes\n" , max_cat_mod)  ) %>%
+  dplyr::mutate(max_cat_mod = gsub("E15" , "Max at E15 genes\n" , max_cat_mod)  ) %>%
+  dplyr::filter(!is.na(max_cat_mod))
+  #dplyr::mutate(max_t50 = gsub("P0_7" , "P0_P7" , max_cat)  ) %>%
+  #dplyr::mutate(max_t50_cat = gsub("t50_" , "   " , max_t50_cat)  ) %>%
+  #dplyr::mutate(max_t50_cat = gsub("_" , "-" , max_t50_cat)  ) %>%
+  
+table(ez_de2_changers$Ezh2_de_group, ez_de2_changers$max_cat)
+  
+gene_num_bar <- ez_de2_changers %>%
+ggplot(aes(x = max_cat_mod, group = Ezh2_de_group, fill = Ezh2_de_group)) +  
+  geom_bar() + 
+    scale_fill_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when EZH2 low", "Genes increased when EZH2 high", "unchanged")) +
+    labs(y = "Number of genes in EZH2\nMB differential expression groups", 
+       x =  "GNP expression time course group", 
+       fill = "Differential\nexpressison" ) +
+  theme_classic() + 
+  coord_flip() + 
+    #theme(legend.position=c(0.7, 0.2), 
+  theme(legend.position="bottom", 
+  #theme(legend.position=c(0,0),
+        legend.justification = c(0, 0),
+          text = element_text(size = 14),
+  panel.grid.major.y = element_line(colour="grey", size=0.5)) +
+    guides(fill=guide_legend(nrow=2,byrow=TRUE))
+ 
+gene_num_bar  
+
+time_ez_de_summary <- ez_de2_changers %>%
+  dplyr::group_by( max_cat_mod, Ezh2_de_group) %>%
+  dplyr::summarise(n = length(max_cat_mod)) %>%
+  tidyr::spread(Ezh2_de_group, n) %>%
+  dplyr::mutate(fold_enrich = log2(Low_when_EZH2_low/ High_when_EZH2_low))
+  
+time_ez_de_summary$high_pval <- mapply(function(x1,x2) 
+  phyper(x1, sum(time_ez_de_summary$High_when_EZH2_low), sum(time_ez_de_summary$Low_when_EZH2_low), x1 + x2, lower.tail=FALSE), 
+       time_ez_de_summary$High_when_EZH2_low, 
+       time_ez_de_summary$Low_when_EZH2_low)
+  
+time_ez_de_summary$low_pval <- mapply(function(x1,x2) 
+  phyper(x1, sum(time_ez_de_summary$High_when_EZH2_low), sum(time_ez_de_summary$Low_when_EZH2_low), x1 + x2, lower.tail=FALSE), 
+       time_ez_de_summary$Low_when_EZH2_low, 
+       time_ez_de_summary$High_when_EZH2_low)
+  
+time_ez_de_summary$min_pval <- apply(time_ez_de_summary[, c("high_pval","low_pval")], 1, min)
+
+
+
+time_ez_de_summary <- time_ez_de_summary %>%
+  dplyr::mutate(abs_fold_enrich = abs(fold_enrich)) %>%
+  dplyr::mutate(enrich_direction = case_when(
+      fold_enrich > 1       ~  "Low_when_EZH2_low",
+      fold_enrich < -1      ~  "High_when_EZH2_low",
+      TRUE      ~  "other"))  %>%
+  dplyr::mutate(pval = -log10(min_pval) )
+
+time_ez_de_summary
+
+fold_enrich_bar <- time_ez_de_summary %>%
+ggplot(aes(x = max_cat_mod, y = abs_fold_enrich, fill = enrich_direction)) +  
+  geom_bar(stat = "identity") +
+    scale_fill_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged"), 
+                     guide=FALSE ) +
+  scale_y_continuous(labels =  math_format(2^.x)) +  
+    labs(y = "Log2 fold enrichment", 
+       x =  "GNP expression time course group", 
+       fill = "Differential expressison" ) +
+  theme_classic() + 
+  coord_flip() + 
+    theme(legend.position=c(0.7, 0.2),  
+          text = element_text(size = 12),
+          #axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),
+          plot.background=element_blank()
+          ) 
+
+
+
+time_ez_de_summary %>%
+ggplot(aes(x = max_cat_mod, y = -log10(min_pval), fill = enrich_direction)) +  
+  geom_point() + 
+    scale_fill_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged")) +
+    labs(y = "gene number", 
+       x =  "GNP expression time course group", 
+       fill = "Differential expressison" ) +
+  theme_classic() + 
+  coord_flip() + 
+    theme(legend.position="none", 
+          text = element_text(size = 12)) 
+```
+
+```{r, fig.height= 8, fig.width=12}
+# Create a mathematical expression with 'enrichment =' on the left side
+eqn <- expression("enrichment = |log"[2] * "(" * frac("n"["gene"]* "(" * "GNP"["group"] * "\u2229" * "EZH2"["low"]* ")", 
+                                         "n"["gene"] * "(" * "GNP"["group"] * "\u2229" * "EZH2"["high"]*")" ) * ")|")
+
+# To display the equation in R
+plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
+text(0, 0, labels = eqn, cex = 2)
+
+```
+
+
+
+
+```{r, fig.width= 3, fig.height=6}
+
+fold_enrich_dot <- time_ez_de_summary %>%
+ggplot(aes(x = max_cat_mod, y = abs_fold_enrich,  size = pval, colour = enrich_direction)) +  
+  geom_point(stat = "identity") +
+    scale_colour_manual(values = hs_ezh2_de_cols, 
+                     labels = c("Genes increased when Ezh2 low", "Genes increased when Ezh2 high", "unchanged"), 
+                     guide=FALSE ) +
+  scale_y_continuous(labels =  math_format(2^.x)) +  
+  scale_size_continuous(breaks = c(2, 5, seq(from = 0, to = 40, by = 10))) +
+    labs(y = "Log2 fold enrichment", 
+       x =  "GNP expression time course group", 
+       fill = "Differential expressison",
+       size = "-log10\np-val") +
+  theme_classic() + 
+  coord_flip() + 
+    theme(legend.position="bottom",
+          legend.direction = "horizontal",
+          text = element_text(size = 14),
+          #axis.text.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y =element_blank(),
+          #axis.title.x=element_blank(),
+          axis.title.y=element_blank(), 
+          axis.line.y=element_blank(),
+          panel.background=element_blank(),
+          panel.border=element_blank(),
+          panel.grid.major=element_blank(),
+          panel.grid.major.y = element_line(colour="grey", size=0.5),
+          plot.background=element_blank()
+          ) + 
+    guides(size=guide_legend(nrow=2,byrow=TRUE))
+fold_enrich_dot
+
+```
+
+
+
+```{r, fig.width= 7, fig.height=4.5}
+library(ggpubr)
+ggarrange(gene_num_bar ,fold_enrich_dot,
+          ncol = 2, nrow = 1, align = "h", widths = c(2.5,1))
+
+
+
+```
+
+
+
+
+Does EZH2 expression level predict survival? 
+
+```{r, fig.height= 3, fig.width= 4}
+
+library(survminer)
+
+SHH_clinical <- human_mb_clinical %>%
+  dplyr::filter(Subgroup == "SHH") %>%
+  dplyr::filter(Study_ID %in% Ezh2_top_bottom$ptn) %>%
+  dplyr::rename(OS = `OS (years)`) %>%  # Corrected column name here
+  # limit to 5 year mortality
+  dplyr::mutate(OS = ifelse(OS >= 5, 5, OS)) %>%
+  
+  dplyr::mutate(Dead = ifelse(OS >= 5, 0, Dead)) %>%
+  dplyr::mutate(OS = ifelse(Dead == 0, 5, OS)) %>%
+  dplyr::mutate(OS = as.numeric(OS)) %>%
+
+   dplyr::filter(!is.na(OS)) %>%
+  dplyr::filter(!is.na(Dead))
+
+SHH_clinical$EZH2 <- plyr::mapvalues(as.character(SHH_clinical$Study_ID), 
+                                          from = as.character(Ezh2_top_bottom$ptn), 
+                                          to = as.character(Ezh2_top_bottom$EZH2_high_low)) 
+
+SHH_clinical$EZH2 <- gsub("Ezh2 ", "", SHH_clinical$EZH2)
+
+
+table(is.na(SHH_clinical$Dead), is.na(SHH_clinical$OS))
+
+SHH_clinical <- SHH_clinical %>%
+  dplyr::mutate(Dead = as.factor(Dead)) %>%
+  dplyr::mutate(EZH2 = as.factor(EZH2)) 
+
+SHH_clinical %>%
+  filter(Dead == 1) %>%
+  dplyr::select(Dead, OS)
+
+SHH_clinical %>%
+  filter(Dead == 1) %>%
+    filter(OS == 5 ) %>%
+  dplyr::select(Dead, OS)
+
+SHH_clinical %>%
+  filter(is.na(Dead)) %>%
+  dplyr::select(Dead, OS)
+
+
+
+
+require("survival")
+fit<- survfit(Surv(OS, Dead) ~ EZH2, data = SHH_clinical)
+
+# Basic survival curves
+ggsurvplot(fit, data = SHH_clinical, 
+            pval = TRUE)
+
+```
+
+
+
+Does EZH2 expression level predict survival? 
+
+```{r, fig.height= 2.5, fig.width= 3}
+
+max_year = 10 
+
+SHH_clinical <- human_mb_clinical %>%
+  dplyr::filter(Subgroup == "SHH") %>%
+  dplyr::filter(Study_ID %in% Ezh2_top_bottom$ptn) %>%
+  dplyr::rename(OS = `OS (years)`) %>%  # Corrected column name here
+  # limit to 5 year mortality
+  dplyr::mutate(OS = ifelse(OS >= max_year, max_year, OS)) %>%
+  
+  dplyr::mutate(Dead = ifelse(OS >= max_year, 0, Dead)) %>%
+  dplyr::mutate(OS = ifelse(Dead == 0, max_year, OS)) %>%
+   dplyr::filter(!is.na(OS)) %>%
+  dplyr::filter(!is.na(Dead))
+
+SHH_clinical$EZH2 <- plyr::mapvalues(as.character(SHH_clinical$Study_ID), 
+                                          from = as.character(Ezh2_top_bottom$ptn), 
+                                          to = as.character(Ezh2_top_bottom$EZH2_high_low)) 
+
+SHH_clinical$EZH2 <- gsub("Ezh2 ", "", SHH_clinical$EZH2)
+
+
+table(is.na(SHH_clinical$Dead), is.na(SHH_clinical$OS))
+
+
+require("survival")
+fit<- survfit(Surv(OS, Dead) ~ EZH2, data = SHH_clinical)
+
+# Basic survival curves
+ggsurvplot(fit, data = SHH_clinical, 
+            pval = TRUE, 
+            risk.table = TRUE,
+            tables.height = 0.2, 
+            risk.table.pos = "in",
+           xlab = "Time in years",
+           palette = c("navajowhite4", "orange2"),
+           legend = c(0.7, 0.3), 
+           legend.title = "EZH2 transcript group"
+            )
+
+
+```

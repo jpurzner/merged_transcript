@@ -1,0 +1,1298 @@
+---
+title: "MTscRNAseq"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Remove genes that are arising from contamination by other cell types.  
+
+
+
+Load the data from "Childhood cerebellar tumours mirror conserved fetal transcriptional programs"
+
+
+```{r, eval = FALSE}
+install.packages("tidyverse")
+install.packages('sjmisc')
+BiocManager::install("DropletUtils")
+BiocManager::install('SingleCellExperiment')
+BiocManager::install('scater')
+BiocManager::install('scuttle')
+install.packages('Seurat')
+BiocManager::install("scran")
+
+```
+
+
+```{r}
+library(dplyr)
+library(ggrepel)
+library(stringr)
+#library(sjmisc)
+library(stringi)
+library(DropletUtils)
+library(SingleCellExperiment)
+library(scater)
+library(scuttle)
+library(DescTools)
+library(tidyr)
+library(dplyr)
+library(Seurat)
+library("readxl")
+ source("~/Dropbox/jp_seq/binarize_counts.R")
+
+```
+
+```{r}
+library(scales)
+library(ggforce)
+library(latex2exp)
+library(directlabels)
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(devtools)
+library(ggplot2)
+library(reshape2)
+library(cowplot)
+library(stringr)
+library(mclust)
+library(ggpubr)
+library(tidyr)
+library(DescTools)
+library(RColorBrewer)
+library(contoureR)
+library(dbscan)
+library(zoo)
+```
+
+# Remove contaminant genes from transcriptional timecourse data 
+
+
+
+## Load supplementary data 
+
+Top 50 differentially expressed marker genes within each ‘cell of origin’ mouse cluster. Differential gene expression from Seurat’s likelihood ratio test (LRT) (two-sided) method was used to generate the marker genes for all of mouse developing time points (n=34 clusters) (Figure-1 and Extended Figure-1) (tab 1) and curated and filtered mouse developing time points used for the generation of CIBERSORT deconvolution signatures (n=31 clusters) (Extended Figure-2) (tab 2). The top 50 genes were selected based on the log2 fold change.
+
+https://www.nature.com/articles/s41586-019-1158-7#Sec25
+https://static-content.springer.com/esm/art%3A10.1038%2Fs41586-019-1158-7/MediaObjects/41586_2019_1158_MOESM4_ESM.xlsx
+
+
+```{r load_data}
+
+library(readxl)
+library(tidyverse)
+library(dplyr)
+
+
+MTscRNAseq <- read_xlsx("~/Dropbox/GNP_MB_integrate/MT_scRNAseq/41586_2019_1158_MOESM4_ESM.xlsx", sheet = 1)
+MTscRNAseq_2 <- read_xlsx("~/Dropbox/GNP_MB_integrate/MT_scRNAseq/41586_2019_1158_MOESM4_ESM.xlsx", sheet = 2)
+
+MTscRNAseq <- as_tibble(MTscRNAseq)
+
+relabeler <- MTscRNAseq %>% 
+              drop_na(Annotations) %>%
+              dplyr::select(cluster, Annotations)
+
+colnames(MTscRNAseq)[1] <- "gene_names"
+
+MTscRNAseq <- MTscRNAseq %>%
+  left_join(., relabeler, by = "cluster") %>%
+  dplyr::select(!Annotations.x) %>%
+  dplyr::rename(Annotations = Annotations.y )
+
+```
+
+
+
+```{r}
+dim(MTscRNAseq)
+table(MTscRNAseq$Annotations)
+
+ MTscRNAseq %>%
+   dplyr::filter(Annotations == "Purkinje cells") %>% 
+   dplyr::select(gene)
+
+
+```
+
+
+```{r,  fig.height= 5, fig.width= 5}
+MTscRNAseq %>%
+    ggplot(aes(x = pct.1, 
+           y = pct.2, 
+           colour = avg_logFC)) + 
+  geom_point( alpha = 0.5, size = 0.5) + 
+  facet_wrap(~Annotations) 
+  
+
+```
+
+
+
+```{r, fig.height= 5, fig.width= 5}
+MTscRNAseq %>%
+   dplyr::filter(avg_logFC > 2) %>%
+    ggplot(aes(x = pct.1, 
+           y = pct.2, 
+           colour = Annotations,  label = gene_names)) + 
+  geom_point( alpha = 1, size = 2) + 
+    geom_text_repel() 
+
+
+
+
+```
+
+
+```{r, fig.height= 5, fig.width= 8}
+MTscRNAseq %>%
+  dplyr::filter(avg_logFC > 1.5) %>%
+    ggplot(aes(x = avg_logFC, 
+           y = Annotations, 
+           colour = Annotations,  label = gene_names)) + 
+  geom_jitter( alpha = 1, size = 2) + 
+    geom_text_repel() 
+
+
+
+
+```
+
+
+Determine the number of genes excluded by logFC cutoff 
+
+```{r}
+gn_lineage_names <- names(table(MTscRNAseq$Annotations))[stri_detect_fixed(names(table(MTscRNAseq$Annotations)), "GCP") | stri_detect_fixed(names(table(MTscRNAseq$Annotations)), "Granule", case_insensitive=TRUE)]
+
+
+
+
+  MTscRNAseq <- MTscRNAseq %>%
+    # split by GNP and not GNP lineages 
+    mutate(gn_lineage =  case_when(
+      Annotations %in% gn_lineage_names  ~ "Granule_neuron_lineage",
+     TRUE  ~ "other"
+    )
+)
+
+```
+
+```{r}
+MTscRNAseq %>%
+    dplyr::filter(avg_logFC > 1) %>%
+    dplyr::filter(p_val < 0.05) %>%
+    dplyr::group_by(gn_lineage,Annotations) %>%
+    dplyr::summarize(gene_num = length( gene_names)) 
+
+```
+
+Load the timeseries transcriptional data
+
+```{r}
+toc_t50 <- read.table("~/Dropbox/GNP_MB_integrate/Ezh2_2022/toc_t50_2023_05_17.txt", 
+            sep = "\t", header = TRUE, row.names = 1)
+
+```
+
+These don't seem to be standard MGI sympbols 
+
+```{r}
+table(MTscRNAseq$gene_names %in% toc_t50$mgi_symbol)
+
+
+MTscRNAseq %>%
+  dplyr::filter((gene_names %in% toc_t50$mgi_symbol)) %>%
+  dplyr::summarize(length(gene_names))
+
+```
+
+
+
+
+## Import raw data from GEO 
+
+```{r}
+library(Matrix)
+matrix_dir = "~/Dropbox/GNP_MB_integrate/MT_scRNAseq/GSE118068_RAW/"
+first_file = "~/Dropbox/GNP_MB_integrate/MT_scRNAseq/GSE118068_RAW/GSM3317999_E10_"
+scfiles <- list.files(path = "~/Dropbox/GNP_MB_integrate/MT_scRNAseq/GSE118068_RAW/")
+
+```
+
+Setup to move the files
+```{r}
+all.new <- gsub("GSM\\d+", "/",scfiles)
+all.new <- gsub("_", "/",all.new)
+all.new <- gsub("//", "/",all.new)
+all.dirs <- gsub("genes.tsv.gz", "", all.new[grep("genes.tsv.gz",  all.new)])
+all.dirs <- substr(all.dirs,1,nchar(all.dirs)-1)
+all.dirs <- paste0(gsub("_RAW/", "", matrix_dir), all.dirs)
+
+all.new <- paste0(gsub("_RAW/", "", matrix_dir), all.new)
+all.path <- paste0( matrix_dir, scfiles)
+```
+
+Move files individual directories 
+
+```{r, eval = FALSE}
+
+# copy the files to the new folder
+sapply(all.dirs, function(x) dir.create(x,  recursive = TRUE))
+file.copy(all.path, all.new, overwrite = TRUE, copy.mode = TRUE )
+```
+
+
+Read the entire data set, takes about 5 min 
+```{r}
+
+
+barcode.path <- paste0(matrix_dir, scfiles[grep("barcodes", scfiles)])
+matrix.path <- paste0(matrix_dir, scfiles[grep("matrix", scfiles)])
+genes.path <- paste0(matrix_dir, scfiles[grep("genes", scfiles)])
+
+prefix_names <- gsub( "matrix.mtx.gz", "", matrix.path)
+sc_sample_names <- str_split(prefix_names, "_")
+sc_sample_names <- unname(as.vector(as.data.frame(sc_sample_names, col.names = seq(1:length(sc_sample_names)))[6,]))
+names(all.dirs) <- sc_sample_names
+
+sce <- read10xCounts(all.dirs,  compressed = TRUE)
+dim(assay(sce))
+colnames(colData(sce))
+colnames(rowData(sce))
+```
+
+
+```{r}
+br.out <- barcodeRanks(counts(sce))
+ 
+
+# I'll convert the list into a data frame
+# and add the cell barcodes to the data frame
+br.out.df <- as.data.frame(br.out)
+br.out.df$barcode <- colData(sce)$Barcode
+br.out.df %>%
+  filter(rank <= 10) %>%
+  arrange(rank)
+
+
+ggplot(br.out.df, aes(x = rank, y = total)) +
+  geom_point() +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_bw() +
+  theme(axis.text = element_text(size = 10),
+        axis.title = element_text(size = 14),
+        title = element_text(size = 16)) +
+  labs(x = "Rank", y = "Total", title = "Barcode Rank vs Total UMI") 
+```
+
+For possible contamination could check the read counts specifically for the GN lineage cells versus other.
+
+
+
+Load the annotation and clustering from MT merge with colData
+
+```{r}
+scRNAseq_cluster <- read.csv("~/Dropbox/GNP_MB_integrate/MT_scRNAseq/cluster_assignments_ExtendedFigure1.csv")
+
+scRNAseq_cluster <- as_tibble(scRNAseq_cluster)
+# the barcodes have a different suffix from what is on GEO
+scRNAseq_cluster <- scRNAseq_cluster %>% 
+    dplyr::mutate( barcode = gsub("-\\d+", "", X )) 
+
+scRNAseq_cluster_anno <- read.csv("~/Dropbox/GNP_MB_integrate/MT_scRNAseq/cluster_annotations_ExtendedFigure2.csv") 
+#table(scRNAseq_cluster_anno$X)
+
+sce_colData <- as_tibble(colData(sce))
+sce_colData <- sce_colData %>% 
+    dplyr::mutate( barcode_simple = gsub("-\\d+", "", Barcode )) 
+
+dim(sce_colData)
+#table(sce_colData$Sample)
+
+
+sce_colData2 <- dplyr::left_join(sce_colData, scRNAseq_cluster, by = c("Sample" = "Donor", "barcode_simple" = "barcode"))
+
+sce_colData2 <- sce_colData2 %>%
+  dplyr::select(Sample, Barcode, Orig_cluster) %>%
+  dplyr::rename( cluster = Orig_cluster)
+
+dim(sce_colData2)
+table(is.na(sce_colData2$cluster))
+
+```
+
+
+Add the cell types to the colData 
+
+```{r}
+clust2name <- as_tibble(as.data.frame(table(MTscRNAseq$cluster, MTscRNAseq$Annotations)))
+clust2name <- clust2name %>% 
+  dplyr::filter(Freq != 0) %>%
+  dplyr::arrange(Var1) %>%
+  dplyr::mutate(cluster = as.numeric(Var1), name = as.character(Var2)) %>%
+  dplyr::select(cluster, name) 
+
+
+sce_colData3 <- dplyr::left_join(sce_colData2, clust2name, by = c("cluster" = "cluster"))
+
+```
+
+Re-enter the revised colData
+```{r}
+colData(sce) <- DataFrame(sce_colData3)
+
+```
+
+
+Remove genes that have no transcripts in the GN lineage 
+
+Get all the cells that are within the GN lineage
+
+```{r, eval = FALSE}
+library(scran)
+library(scuttle)
+library(scater)
+sce <- computeSumFactors(sce, min.mean=0.1)
+summary(sizeFactors(sce))
+
+```
+
+
+```{r}
+
+sce <- logNormCounts(sce) 
+
+
+
+
+```
+
+
+Separate the cells that are GN lineage 
+
+```{r}
+gn_sce <- sce[, sce$name %in% gn_lineage_names]
+ncol(counts(gn_sce))
+
+```
+Plot GNP transcript against the max of other other lineages 
+
+To do this we take the cluster groups from the original paper and average the transcripts per cell type.  Then we divide into the granule neuron lineage and non granule neuron lineage and the maximum expression for a given gene is determined in those 2 groups.   
+
+```{r}
+sce_agg <- aggregateAcrossCells(sce, ids = sce$cluster, statistics = "mean", use.assay.type = "logcounts")
+sce_agg_df <- data.frame(logcounts(sce_agg))
+sce_agg_df$ensbl_names <- row.names(sce_agg_df)
+sce_agg_df <- as_tibble(sce_agg_df)
+
+
+clust2name <- clust2name %>% 
+  dplyr::mutate(gn_lineage =  name %in% gn_lineage_names)
+
+
+sce_agg_df_flat <- sce_agg_df %>%
+  tidyr::gather(cluster, value, -ensbl_names ) %>%
+  dplyr::mutate(cluster = as.numeric(gsub("X", "", cluster)))  %>% 
+  dplyr::left_join(., clust2name,  by = c("cluster" = "cluster"))
+
+  
+sce_agg_df_wide <- sce_agg_df_flat %>% 
+  dplyr::group_by(ensbl_names, gn_lineage) %>%
+  dplyr::slice(which.max(value)) %>%
+  dplyr::filter(cluster > 0) %>%
+  dplyr::group_by(ensbl_names) %>%
+  dplyr::summarise(gn_cluster = cluster[gn_lineage], 
+                   non_gn_cluster = cluster[!gn_lineage], 
+                   gn_name = name[gn_lineage], 
+                   non_gn_name = name[!gn_lineage],
+                   gn_max_logn = value[gn_lineage],
+                   non_gn_max_logn = value[!gn_lineage],
+                   )
+  
+
+sce_agg_df_wide %>%
+ ggplot(aes(x = gn_max_logn, y = non_gn_max_logn)) +
+ geom_point(size = 0.2, alpha =0.5)
+  
+
+
+
+  
+
+sce_agg_df_wide %>%
+      dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+      dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+      dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 4 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc )) +
+ geom_point(size = 0.2, alpha =0.5)
+  
+
+```
+Check to see if these measurements are accurate using candidate genes
+```{r}
+
+ label_genes <- c("Meis2", "Lhx9", "Gli1", "Ccnd1","Ccnd2", "Meis2", "St8sia5", "Gabra6", "Ablim1", "Unc5b", "Wnt7a", "Phyhip", "Hr", "Cbx7")
+
+label_genes <- c("Atoh1")
+
+
+label_ens_genes <- toc_t50 %>% 
+  dplyr::filter(mgi_symbol %in% label_genes) %>%
+  dplyr::select(mgi_symbol, ensembl_gene_id)
+
+sce_agg_df_flat %>%
+  dplyr::filter(ensbl_names %in% label_ens_genes$ensembl_gene_id) %>%
+  dplyr::left_join(label_ens_genes, by = c("ensbl_names" = "ensembl_gene_id")) %>%
+  dplyr::select(mgi_symbol, value, name, gn_lineage) %>%
+  dplyr::filter(!is.na(name)) %>%
+   ggplot(aes(x = mgi_symbol, y = value, colour = name, fill = name, label = name )) +
+ geom_jitter(size = 1, alpha =0.5) +
+    geom_text_repel() + 
+  facet_wrap(~gn_lineage) + 
+  theme(legend.position = "none")
+
+
+label_genes <- c("Lmx1a")
+
+
+label_ens_genes <- toc_t50 %>% 
+  dplyr::filter(mgi_symbol %in% label_genes) %>%
+  dplyr::select(mgi_symbol, ensembl_gene_id)
+
+sce_agg_df_flat %>%
+  dplyr::filter(ensbl_names %in% label_ens_genes$ensembl_gene_id) %>%
+  dplyr::left_join(label_ens_genes, by = c("ensbl_names" = "ensembl_gene_id")) %>%
+  dplyr::select(mgi_symbol, value, name, gn_lineage) %>%
+  dplyr::filter(!is.na(name)) %>%
+   ggplot(aes(x = mgi_symbol, y = value, colour = name, fill = name, label = name )) +
+ geom_jitter(size = 1, alpha =0.5) +
+    geom_text_repel() + 
+  facet_wrap(~gn_lineage) + 
+  theme(legend.position = "none")
+
+
+label_genes <- c("S100b")
+
+
+label_ens_genes <- toc_t50 %>% 
+  dplyr::filter(mgi_symbol %in% label_genes) %>%
+  dplyr::select(mgi_symbol, ensembl_gene_id)
+
+sce_agg_df_flat %>%
+  dplyr::filter(ensbl_names %in% label_ens_genes$ensembl_gene_id) %>%
+  dplyr::left_join(label_ens_genes, by = c("ensbl_names" = "ensembl_gene_id")) %>%
+  dplyr::select(mgi_symbol, value, name, gn_lineage) %>%
+  dplyr::filter(!is.na(name)) %>%
+   ggplot(aes(x = mgi_symbol, y = value, colour = name, fill = name, label = name )) +
+ geom_jitter(size = 1, alpha =0.5) +
+    geom_text_repel() + 
+  facet_wrap(~gn_lineage) + 
+  theme(legend.position = "none")
+
+label_genes <- c("Cbx7")
+
+
+label_ens_genes <- toc_t50 %>% 
+  dplyr::filter(mgi_symbol %in% label_genes) %>%
+  dplyr::select(mgi_symbol, ensembl_gene_id)
+
+sce_agg_df_flat %>%
+  dplyr::filter(ensbl_names %in% label_ens_genes$ensembl_gene_id) %>%
+  dplyr::left_join(label_ens_genes, by = c("ensbl_names" = "ensembl_gene_id")) %>%
+  dplyr::select(mgi_symbol, value, name, gn_lineage) %>%
+  dplyr::filter(!is.na(name)) %>%
+   ggplot(aes(x = mgi_symbol, y = value, colour = name, fill = name, label = name )) +
+ geom_jitter(size = 1, alpha =0.5) +
+    geom_text_repel() + 
+  facet_wrap(~gn_lineage) + 
+  theme(legend.position = "none")
+
+label_genes <- c("Ablim1")
+
+
+label_ens_genes <- toc_t50 %>% 
+  dplyr::filter(mgi_symbol %in% label_genes) %>%
+  dplyr::select(mgi_symbol, ensembl_gene_id)
+
+sce_agg_df_flat %>%
+  dplyr::filter(ensbl_names %in% label_ens_genes$ensembl_gene_id) %>%
+  dplyr::left_join(label_ens_genes, by = c("ensbl_names" = "ensembl_gene_id")) %>%
+  dplyr::select(mgi_symbol, value, name, gn_lineage) %>%
+  dplyr::filter(!is.na(name)) %>%
+   ggplot(aes(x = mgi_symbol, y = value, colour = name, fill = name, label = name )) +
+ geom_jitter(size = 1, alpha =0.5) +
+    geom_text_repel() + 
+  facet_wrap(~gn_lineage) + 
+  theme(legend.position = "none")
+
+```
+
+Want to see how individual cells vary with these genes 
+```{r}
+
+label_genes <- c("Atoh1")
+
+
+label_ens_genes <- toc_t50 %>% 
+  dplyr::filter(mgi_symbol %in% label_genes) %>%
+  dplyr::select(mgi_symbol, ensembl_gene_id)
+
+
+gene_expression <- assay(sce)[label_ens_genes$ensembl_gene_id, ]
+# Scatter plot
+plot(x = 1:length(gene_expression), y = gene_expression, xlab = 'Cell Index', ylab = 'Gene Expression', main = 'Gene Expression Across Cells')
+
+
+
+```
+Merge in the results from Seurat and plot the genes that are significantly different. 
+
+```{r,fig.height= 5, fig.width= 8}
+
+table(duplicated(MTscRNAseq$gene_names))
+MTscRNAseq[duplicated(MTscRNAseq$gene_names),]
+MTscRNAseq <- MTscRNAseq[!duplicated(MTscRNAseq$gene_names),]
+table(duplicated(MTscRNAseq$gene_names))
+
+
+ens2symbol <- as_tibble(rowData(sce))
+sce_agg_df_wide <- sce_agg_df_wide %>% 
+  dplyr::left_join(., ens2symbol, by = c("ensbl_names" = "ID") ) %>%
+  dplyr::left_join(., MTscRNAseq, by = c("Symbol" = "gene_names") )
+
+sce_agg_df_wide <- sce_agg_df_wide %>%
+  dplyr::mutate(log10pval = log10(as.numeric(p_val_adj)) *(-1) ) %>%
+  dplyr::mutate(log10pval=as.numeric(replace(log10pval, log10pval==Inf, 400))) # %>%
+  #  dplyr::mutate(log10pval = (replace_na(log10pval, 0))) 
+
+
+sce_agg_df_wide %>%
+    dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(non_gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = non_gn_max_logn, colour = Annotations, shape = gn_lineage, size = log10pval)) +
+ geom_point( alpha =0.5) + 
+    theme_classic() + 
+  theme(legend.position = "bottom")
+  
+
+
+
+sce_agg_df_wide %>%
+      dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+      dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+      dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -1, maxval = 4 ) ) %>%
+   dplyr::filter(log10pval > 100) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = Annotations, size = log10pval)) +
+ geom_point( alpha =0.5) + 
+    theme_classic() + 
+  theme(legend.position = "bottom")
+  
+
+```
+
+```{r, fig.height= 8, fig.width= 6}}
+sce_agg_df_wide %>%
+    dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(non_gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+  dplyr::filter(log10pval > 10) %>%
+  dplyr::filter(!(Annotations %in% gn_lineage_names)) %>%
+ ggplot(aes(x = gn_max_logn, y = non_gn_max_logn, shape = gn_lineage, colour = log10pval)) +
+ geom_point( size = 0.4, alpha =0.5) + 
+  facet_wrap(~Annotations) +
+    theme_classic() 
+  
+
+sce_agg_df_wide %>%
+      dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+      dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+      dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -1, maxval = 4 ) ) %>%
+  dplyr::filter(log10pval > 10) %>%
+  dplyr::filter(!(Annotations %in% gn_lineage_names)) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, shape = gn_lineage, colour = log10pval)) +
+ geom_point( size = 0.4, alpha =0.5) + 
+  facet_wrap(~Annotations) +
+    theme_classic() 
+
+```
+
+```{r}
+
+table(sce_agg_df_wide$Annotations)
+
+
+sce_agg_df_wide %>%
+    dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(non_gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+  dplyr::mutate(log10pval = log10(as.numeric(p_val_adj)) *(-1) ) %>%
+  #dplyr::filter(log10pval > 100) %>%
+  dplyr::filter(Annotations ==  "Purkinje cells")  %>%
+ ggplot(aes(x = gn_max_logn, y = non_gn_max_logn, shape = gn_lineage, colour = log10pval)) +
+ geom_point( size = 1) + 
+  facet_wrap(~Annotations) +
+    theme_classic() 
+  
+sce_agg_df_wide %>%
+   dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+   dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -1, maxval = 4 ) ) %>%
+   dplyr::mutate(log10pval = log10(as.numeric(p_val_adj)) *(-1) ) %>%
+  dplyr::filter(log10pval > 100) %>%
+  dplyr::filter(Annotations ==  "Purkinje cells")  %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, shape = gn_lineage, colour = log10pval)) +
+ geom_point( size = 1) + 
+  facet_wrap(~Annotations) +
+    theme_classic() 
+
+
+```
+
+What is the appropriate cuttoff for the 
+
+```{r}
+sce_agg_df_wide %>%
+     dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4) ) %>%
+ggplot( aes(x=gn_max_logn)) +
+  ylim(c(0, 500))+
+  geom_histogram(bins = 200) +
+  geom_vline(xintercept = 0.4)
+
+sce_agg_df_wide %>%
+     dplyr::mutate(gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 4) ) %>%
+ggplot( aes(x=gn_max_logn)) +
+  ylim(c(0, 500))+
+  geom_histogram(bins = 200) +
+  geom_vline(xintercept = 0.4)
+
+sce_agg_df_wide %>%
+  dplyr::filter(gn_max_logn > 0.4) %>%
+  dplyr::summarise(length(ensbl_names))
+
+```
+
+Exlude genes based upon low expression and by expression in another tissue 
+
+Make a categorical variable with 
+1. Expressed in GN lineage
+2. Significantly more expressed in other cell type 
+3. Unexpressed in GN lineage 
+
+
+
+```{r}
+expr_cutoff <- 0.1
+pval_cutoff <- 100
+
+sce_agg_df_wide %>%
+  dplyr::mutate(gn_expr = ifelse(gn_max_logn > expr_cutoff, "gn_expr", "gn_unexpr") )  %>%
+  dplyr::mutate(other_expr = ifelse(non_gn_max_logn > expr_cutoff, "other_expr", "other_unexpr"   )) %>%
+  dplyr::mutate(seurat_non_gn = ifelse ((!(Annotations %in% gn_lineage_names)) & log10pval > pval_cutoff, "seurat_other", "not_seurat_other")) %>%
+  dplyr::mutate(gn_exclude = str_c(gn_expr, " ", seurat_non_gn))  %>%
+      dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(non_gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = non_gn_max_logn, colour = gn_exclude)) +
+ geom_point(size = .5, alpha =.4) + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+  
+    theme_classic() + 
+  theme(legend.position = "bottom")
+  
+  sce_agg_df_wide %>%
+  dplyr::mutate(gn_expr = ifelse(gn_max_logn > expr_cutoff, "gn_expr", "gn_unexpr") )  %>%
+  dplyr::mutate(other_expr = ifelse(non_gn_max_logn > expr_cutoff, "other_expr", "other_unexpr"   )) %>%
+  dplyr::mutate(seurat_non_gn = ifelse ((!(Annotations %in% gn_lineage_names)) & log10pval > pval_cutoff, "seurat_other", "not_seurat_other")) %>%
+  dplyr::mutate(gn_exclude = str_c(gn_expr, " ", seurat_non_gn))  %>%
+ 
+       dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+   dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -1, maxval = 4 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = gn_exclude)) +
+ geom_point(size = .5, alpha =.4) + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() +
+  
+    theme_classic() + 
+  theme(legend.position = "right")
+
+#%>%
+ # dplyr::mutate(gn_exclude = case_when(
+  #  gn_max_logn & seurat_non_gn ~ "More expressed in another cell type",
+  #  (!gn_max_logn) & seurat_non_gn ~ "Only expressed in another cell type",
+  #  (!gn_max_logn) & (!seurat_non_gn)  ~ "Not expressed in GN",
+  #  gn_max_logn & (!seurat_non_gn) ~ "Expressed in GN preferentially",
+  #   TRUE                                                          ~ "other"
+  #))  
+
+```
+  
+To better see the overlap between the seurat calls and genes that look expressed in GN lineage we will facet the figure. 
+
+```{r}
+sce_agg_df_wide %>%
+  
+  dplyr::mutate(gn_expr = ifelse(gn_max_logn > expr_cutoff, "gn_expr", "gn_unexpr") )  %>%
+  dplyr::mutate(other_expr = ifelse(non_gn_max_logn > expr_cutoff, "other_expr", "other_unexpr"   )) %>%
+  dplyr::mutate(seurat_non_gn = ifelse ((!(Annotations %in% gn_lineage_names)) & log10pval > pval_cutoff, "seurat_other", "not_seurat_other")) %>%
+  dplyr::mutate(gn_exclude = str_c(gn_expr, " ", seurat_non_gn))  %>%
+   dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+   dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 4 ) ) %>%
+   dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -1, maxval = 4 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = gn_exclude, fill = gn_exclude)) +
+ geom_point(size = .5, alpha =1) + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+   facet_wrap(~seurat_non_gn) +
+    theme_classic() + 
+  theme(legend.position = "bottom")
+
+
+tt <- sce_agg_df_wide %>%
+  
+  dplyr::mutate(gn_expr = ifelse(gn_max_logn > expr_cutoff, "gn_expr", "gn_unexpr") )  %>%
+  dplyr::mutate(other_expr = ifelse(non_gn_max_logn > expr_cutoff, "other_expr", "other_unexpr"   )) %>%
+  dplyr::mutate(seurat_non_gn = ifelse ((!(Annotations %in% gn_lineage_names)) & log10pval > pval_cutoff, "seurat_other", "not_seurat_other")) %>%
+
+   dplyr::mutate(gn_exclude = str_c(gn_expr, " ", seurat_non_gn))  
+ table(tt$gn_exclude) 
+  
+```
+  
+  
+Merge with the transcriptional data 
+We may need to be more intelligent about how these genes are merged together. 
+
+
+```{r}
+
+sce_agg_merged <-  toc_t50  %>%
+  dplyr::left_join(., sce_agg_df_wide, by = c("ensembl_gene_id" =  "ensbl_names") ) 
+
+
+sce_agg_merged <-  sce_agg_merged %>%
+   dplyr::mutate(gn_expr = ifelse(gn_max_logn > expr_cutoff, "gn_expr", "gn_unexpr") )  %>%
+  dplyr::mutate(other_expr = ifelse(non_gn_max_logn > expr_cutoff, "other_expr", "other_unexpr"   )) %>%
+  dplyr::mutate(seurat_non_gn = ifelse ((!(Annotations %in% gn_lineage_names)) & log10pval > pval_cutoff, "seurat_other", "not_seurat_other")) %>%
+  dplyr::mutate(gn_exclude = str_c(gn_expr, " ", seurat_non_gn))  %>%
+   dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) 
+
+dim(sce_agg_df_wide)
+dim(sce_agg_merged)
+
+```
+
+How many of our differentiation genes are associated with contamination
+
+```{r}
+
+scott_GNP_meta <- c("E15","E15","E15", "P1", "P1", "P7", "P7", "P7", "P14", "P14", "P14")
+scott_GNP_meta <- factor(scott_GNP_meta, levels = c("E15", "P1", "P7", "P14"))
+hatten_meta <- c("P0", "P0", "P0", "P7", "P7", "P7", "P12", "P12", "P12", "P18", "P18", "P18", "P21", "P21", "P21", "P56", "P56", "P56")
+hatten_meta <- factor(hatten_meta, levels = c("P0", "P7", "P12", "P18", "P21", "P56"))
+meta_list <- list(scott_GNP_meta, hatten_meta)
+names(meta_list) <- c("scott_GNP", "hatten_GNP")
+pseudo_time <- c("E15","P0", "P1", "P7", "P12", "P14", "P18", "P21", "P56")
+
+time_ref  <- data.frame( time = c(str_c("E", c(15:20)), str_c("P", c(0:56)))) 
+time_ref$scott <- time_ref$time %in% c("E15", "P1", "P7", "P14")
+time_ref$hatten <- time_ref$time %in% c("P0","P7","P12","P18","P21","P56")
+row.names(time_ref) <- time_ref$time
+time_ref$time <- NULL
+
+time_points <- which(rowSums(time_ref) > 0)
+time_points <- time_points[!names(time_points) %in% c("P0", "P12")]
+
+```
+
+
+
+
+```{r, fig.height= 3.5, fig.width= 3}
+
+label_genes <- c("Meis2", "Lhx9", "Gli1", "Ccnd1","Ccnd2", "Meis2", "St8sia5", "Gabra6", "Ablim1", "Unc5b", "Wnt7a", "Phyhip", "Hr", "Cbx7")
+
+max_cat_names <- list( E15 = "Maximum at E15", P0_7 = "Maximum at P0 to P7", P14_P56 =  "Maximum at P14 to P56")
+max_cat_labeller <- function(variable,value){
+  return(max_cat_names[value])
+}
+
+
+
+
+
+
+
+
+```
+
+
+What is the raw expression correlelation between the single cell RNAseq and the bulk RNAseq
+
+```{r}
+sce_agg_merged %>% 
+    ggplot(aes(x = log10(max_expr_Scott+1), y = gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16) + 
+    facet_wrap(~seurat_non_gn) 
+  
+sce_agg_merged %>% 
+    ggplot(aes(x = log10(max_expr_Hatten+1), y = gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16)  
+  
+sce_agg_merged %>% 
+    ggplot(aes(x = log10(max_expr_Scott+1), y = non_gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16) + 
+    facet_wrap(~seurat_non_gn) 
+
+
+```
+# Cell cycle genes 
+
+There are a lot of genes that are expressed in the bulk sample that are not expressed in the any cell in the scRNAseq.  Could they be related to cells undergoing mitosis. 
+
+To start get a list of genes that are typically excluded from scRNAseq experiments as being associated with cell cycle.  The Taylor paper excluded these cells. 
+
+We will use the data from this paper.
+A high-resolution transcriptome map of cell cycle reveals novel connections between periodic genes and cancer
+Daniel Dominguez, Yi-Hsuan Tsai, Nicholas Gomez, Deepak Kumar Jha, Ian Davis & Zefeng Wang 
+Cell Research volume 26, pages946–962 (2016)
+
+```{r}
+cell_cycle_genes <- read_excel("~/Dropbox/GNP_MB_integrate/MT_scRNAseq/41422_2016_BFcr201684_MOESM26_ESM.xlsx", 
+                               skip = 4)
+dim(cell_cycle_genes)
+table(cell_cycle_genes$Stage)
+```
+
+
+Generate human to mouse ensembl gene list 
+
+```{r, eval = FALSE}
+
+
+human = useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+listAttributes(human)
+possible_attrib <- listAttributes(human)
+possible_attrib[grep( "hsapiens", possible_attrib$name),]
+
+attributes = c("ensembl_gene_id", "ensembl_transcript_id", "mmusculus_homolog_ensembl_gene", "mmusculus_homolog_ensembl_peptide", "mmusculus_homolog_orthology_type", "mmusculus_homolog_canonical_transcript_protein", "mmusculus_homolog_perc_id")
+
+
+
+listAttributes(mouse)
+possible_attrib <- listAttributes(mouse)
+possible_attrib[grep( "hsapien", possible_attrib$name),]
+
+orth.mouse = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE)
+dim(orth.mouse)
+
+length(unique(orth.mouse$mmusculus_homolog_ensembl_gene))
+orth.mouse.filt = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE, filters="with_mmusculus_homolog")
+dim(orth.mouse.filt)
+length(unique(orth.mouse.filt$mmusculus_homolog_ensembl_gene))
+attributes = c("ensembl_gene_id","hgnc_symbol")
+human_HGNC = getBM( attributes,values =TRUE, mart = human, bmHeader=FALSE) 
+
+orth.mouse.filt <- merge(x = orth.mouse.filt, y= human_HGNC, by.x = 1, by.y  = 1, all.x = TRUE)
+colnames(orth.mouse.filt)[1] <- "hg_ensembl_gene_id"
+
+
+orth.mouse.filt.best <- orth.mouse.filt %>%
+  dplyr::group_by(mmusculus_homolog_ensembl_gene) %>%
+  dplyr::slice(which.max(mmusculus_homolog_perc_id))
+
+
+write.table(orth.mouse.filt.best, file = "~/Dropbox/GNP_MB_integrate/Ezh2_2022/orth_mouse_filt_best.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+```
+
+
+Convert the human genes to mouse for table merge, the code for gathering the table is in Figure 9
+
+```{r}
+orth.mouse.filt.best <- read.table(file = "~/Dropbox/GNP_MB_integrate/Ezh2_2022/orth_mouse_filt_best.txt", header = TRUE, sep = "\t")
+
+cell_cycle_genes_mouse <- orth.mouse.filt.best  %>%
+  dplyr::select(-mmusculus_homolog_ensembl_peptide,-mmusculus_homolog_canonical_transcript_protein,-mmusculus_homolog_perc_id, - ensembl_transcript_id) %>%
+  dplyr::left_join(cell_cycle_genes, by = c("hg_ensembl_gene_id" =  "Gene ID") ) %>%
+  dplyr::select(1:9) %>%
+  dplyr::rename(ensembl_gene_id = mmusculus_homolog_ensembl_gene)
+
+dim(cell_cycle_genes_mouse)
+table(is.na(cell_cycle_genes_mouse$ensembl_gene_id))
+```
+
+
+```{r}
+sce_agg_merged_cc <- sce_agg_merged %>% 
+  dplyr::left_join(., cell_cycle_genes_mouse, by = c("ensembl_gene_id" =  "ensembl_gene_id") )# %>%
+#  dplyr::rename( mgi_symbol = mgi_symbol.x, Symbol = Symbol.x)
+
+dim(sce_agg_merged_cc)
+table(sce_agg_merged_cc$`Core 67`)
+table(sce_agg_merged_cc$Stage)
+
+
+table(sce_agg_merged_cc$gn_exclude, sce_agg_merged_cc$Stage)
+
+
+```
+
+
+
+
+Generate the final categorical variable that describes excluded genes by being highly expressed in other cells, as well genes known to be related to cell cycle. 
+
+
+2. Cell cycle related gene 
+3. Expression in GN lineas
+3. Expression in other cell type and no expression in granule neurons
+4. Expression in other cell type passing a fold change cuttoff 
+5. Hh signalling by GDC0449 RNAseq in GNPs 
+
+
+We have to be careful because once the cells are differentiated the RNA can be in processes that are not maintained during the extraction of single cells.  Preserving this RNA is the major advantage to TRAP dataset generated by the Hatten lab.  
+
+Keeping all moderately expressed genes in either the Scott Lab RNAseq or the Hatten TRAP data
+
+
+```{r}
+
+
+table(is.na(sce_agg_merged_cc$ensembl_gene_id))
+table(is.na(sce_agg_merged_cc$gn_max_logn))
+
+
+hist(sce_agg_merged_cc$gn_max_logn_fc, breaks = 100)
+hist(sce_agg_merged_cc$gn_max_logn, breaks = 100)
+hist(sce_agg_merged_cc$gn_max_logn, breaks = 100)
+hist(sce_agg_merged_cc$gn_max_logn, breaks = 100, xlim = c(0,5), ylim = c(0,1000))
+hist(log10(sce_agg_merged_cc$max_expr_Hatten + 1), breaks = 100)
+
+hist(log10(sce_agg_merged_cc$max_expr_Scott + 1), breaks = 100)
+
+
+max_Scott_nona <- log10(sce_agg_merged_cc$max_expr_Scott[!is.na(sce_agg_merged_cc$max_expr_Scott)]+1)
+hist(max_Scott_nona, breaks = 100)
+
+max_Hatten_nona <- log10(sce_agg_merged_cc$max_expr_Hatten[!is.na(sce_agg_merged_cc$max_expr_Hatten)]+1)
+hist(max_Hatten_nona, breaks = 100)
+
+
+
+sce_agg_merged_cc_ann <-sce_agg_merged_cc %>%
+  dplyr::mutate(exclude_cat = case_when(
+     # `Core 67` == "YES"                         ~  "Cell_cycle_core",
+      Stage %in% c("G1-S", "G2-M")               ~  "Cell_cycle",
+ 
+    gn_exclude == "gn_expr seurat_other" &   (!(max_expr_Hatten >  500 | max_expr_Scott >  1000))    ~ "GN_expressed_other_lineage_more_seurat", 
+    
+      gn_exclude == "gn_unexpr seurat_other" &   (!(max_expr_Hatten >  500 | max_expr_Scott >  1000))    ~ "GN_not_expressed_other_lineage_expressed",
+      gn_max_logn_fc > 2 ~ "GN_expressed_other_lineage_more_fc", 
+     max_cat == "unexpressed" & gn_expr == "gn_unexpr" &  other_expr == "other_expr"   ~ "GN_unexpressed_other_lineage_expressed",
+  max_cat == "unexpressed" & gn_expr == "gn_unexpr" &  other_expr == "other_unexpr" ~ "Unexpressed_cerebellar_lineages",
+     # excludes genes that don't reach bulk RNAseq expression threshold
+        max_cat == "unchanged" | cat_avg_fc == "0-1 log2FC"     ~ "GN_expressed_not_changing",
+ #     P7_GNP_GDC0449_subset_2F == "P7_GNP_high" ~ "Shh related genes",
+      
+      # what should be included 
+      
+      
+      TRUE                                ~  "other"
+
+  ))
+
+table(sce_agg_merged_cc_ann$gn_exclude, sce_agg_merged_cc_ann$gn_expr)
+table(sce_agg_merged_cc_ann$exclude_cat)
+table(sce_agg_merged_cc_ann$exclude_cat,sce_agg_merged_cc_ann$gn_exclude)
+
+```
+
+
+Generate bar diagram that shows how different genes are assigned 
+
+Unexpressed 
+
+scRNAseq exclusion (2 options the cell types or the subgroups)
+  GN not expressed 
+  GN expressed 
+
+GN Expressed but unchanging 
+
+Not excluded 
+  Highest E15 
+  P0-7 
+  Highest P14-P56 
+  
+
+```{r}
+
+sce_agg_merged_cc_ann <-sce_agg_merged_cc_ann %>%
+  dplyr::mutate(group_1 = case_when(
+     # `Core 67` == "YES"                         ~  "Cell_cycle_core",
+      exclude_cat == "Cell_cycle"             ~  "Cell cycle",
+      
+      exclude_cat %in% c("GN_expressed_other_lineage_more_seurat", 
+                         "GN_not_expressed_other_lineage_expressed",
+                         "GN_expressed_other_lineage_more_fc")
+                                      ~ "Contaminated genes", 
+      
+      exclude_cat %in% c("Unexpressed_cerebellar_lineages", 
+                         "GN_unexpressed_other_lineage_expressed") 
+                                    ~ "Unexpressed",
+      
+      exclude_cat == "GN_expressed_not_changing"
+                                     ~ "Unchanged expression",
+      
+      exclude_cat == "other"       ~ "Dynically expressed in granule neuron lineage",
+      
+      TRUE                                ~  "other"
+
+  )) %>%
+  dplyr::mutate(group_2 = case_when(
+      group_1 == "Cell cycle"             ~  "Cell cycle",
+      
+      group_1 == "Contaminated genes" &   
+        exclude_cat %in% c("GN_expressed_other_lineage_more_seurat", 
+                         "GN_expressed_other_lineage_more_fc")
+                                      ~  "Granule neuron lineage expressed", 
+      
+      group_1 == "Contaminated genes" &   
+        exclude_cat == "GN_not_expressed_other_lineage_expressed"
+                                      ~  "Granule neuron lineage not expressed", 
+
+      exclude_cat == "Unexpressed_cerebellar_lineages"
+                                      ~ "Unexpressed", 
+      exclude_cat == "GN_unexpressed_other_lineage_expressed"
+                                    ~ "Unexpressed",
+      
+      exclude_cat == "GN_expressed_not_changing"
+                                     ~ "Unchanged expression",
+    
+      group_1 == "Dynically expressed in granule neuron lineage" & 
+                        cat_avg_fc == "1-2 log2FC" 
+                                    ~ "1-2 log2FC",
+      
+      group_1 == "Dynically expressed in granule neuron lineage" & 
+                        cat_avg_fc == ">2 log2FC" 
+                                    ~ ">2 log2FC",
+      
+      TRUE                                ~  "other"
+
+  )) 
+
+```
+
+
+```{r}
+table(sce_agg_merged_cc_ann$cat_avg_fc)
+table(sce_agg_merged_cc_ann$exclude_cat)
+table(sce_agg_merged_cc_ann$group_1)
+
+table(sce_agg_merged_cc_ann$group_1, sce_agg_merged_cc_ann$group_2)
+```
+
+
+```{r, fig.height= 6, fig.width= 6}
+
+
+sce_agg_merged_cc_ann %>% 
+    dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+   dplyr::mutate(scott_expr_wins = Winsorize(log10(max_expr_Scott+1), minval = 1, maxval = 5 ) ) %>%
+    ggplot(aes(x = scott_expr_wins , y = gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16) + 
+    geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(log10(max_expr_Scott+1), minval = 1, maxval = 5 ), 
+                      y = Winsorize(gn_max_logn, minval = 0, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+    facet_wrap(~exclude_cat) 
+
+sce_agg_merged_cc_ann %>% 
+    dplyr::mutate(non_gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+   dplyr::mutate(scott_expr_wins = Winsorize(log10(max_expr_Scott+1), minval = 1, maxval = 5 ) ) %>%
+    ggplot(aes(x = scott_expr_wins , y = non_gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16) + 
+    geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(log10(max_expr_Scott+1), minval = 1, maxval = 5 ), 
+                      y = Winsorize(non_gn_max_logn, minval = 0, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+    facet_wrap(~exclude_cat) 
+
+sce_agg_merged_cc_ann %>% 
+    dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+   dplyr::mutate(hatten_expr_wins = Winsorize(log10(max_expr_Hatten+1), minval = 0, maxval = 4 ) ) %>%
+    ggplot(aes(x = hatten_expr_wins , y = gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16) + 
+    geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(log10(max_expr_Hatten+1), minval = 0, maxval = 4 ), 
+                      y = Winsorize(gn_max_logn, minval = 0, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+    facet_wrap(~exclude_cat) 
+
+sce_agg_merged_cc_ann %>% 
+    dplyr::mutate(non_gn_max_logn = Winsorize(non_gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+   dplyr::mutate(hatten_expr_wins = Winsorize(log10(max_expr_Hatten+1), minval = 0, maxval = 4 ) ) %>%
+    ggplot(aes(x = hatten_expr_wins , y = non_gn_max_logn)) + 
+  geom_point(aes(color=gn_exclude, fill =gn_exclude ), 
+             size = 1.5, alpha = 0.8, shape =  16) + 
+    geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(log10(max_expr_Hatten+1), minval = 0, maxval = 4 ), 
+                      y = Winsorize(non_gn_max_logn, minval = 0, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+    facet_wrap(~exclude_cat) 
+
+  sce_agg_merged_cc_ann %>%
+  dplyr::mutate(gn_max_logn_fc =non_gn_max_logn -gn_max_logn) %>%
+  dplyr::mutate(gn_max_logn = Winsorize(gn_max_logn, minval = 0, maxval = 3 ) ) %>%
+  dplyr::mutate(gn_max_logn_fc = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ) ) %>%
+ ggplot(aes(x = gn_max_logn, y = gn_max_logn_fc, colour = exclude_cat, fill = exclude_cat)) +
+ geom_point(size = .5, alpha =1 ) + 
+    facet_wrap(~exclude_cat) +
+  geom_text_repel(data = subset(sce_agg_merged_cc_ann, mgi_symbol %in% label_genes ), 
+                  aes(x =  Winsorize(gn_max_logn, minval = 0, maxval = 3), 
+                      y = Winsorize(gn_max_logn_fc, minval = -0.5, maxval = 3 ), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           max.overlaps = 100,
+           size = 4, 
+           seed = 3, 
+           colour = "black") + 
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+    coord_fixed() +
+    
+  
+  theme(legend.position = "right")
+
+```
+
+
+
+The scRNAseq time course ends at P14 so it is not suprising that there are many genes that are showing up as high in the Hatten data set 
+
+
+
+
+
+```{r, fig.height= 8, fig.width= 8}
+max_timecourse_plot <- sce_agg_merged_cc_ann %>%
+  #dplyr::filter(!(max_cat %in% c("unchanged", "unexpressed"))) %>%
+  dplyr::mutate(t50_cat = factor(t50_cat, levels = c("Early", "Mid", "Late"))) %>%
+  dplyr::filter(max_cat != "unexpressed", max_cat != "unchanged") %>% 
+  ggplot(aes(x = Winsorize(avg_t50, maxval = 30), 
+           y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5))) + 
+  geom_point(aes(color=exclude_cat), 
+             size = 1.25, alpha = 0.9, shape = 16) + 
+  # circle the labeled points 
+  geom_point(data = subset(sce_agg_merged_cc, mgi_symbol %in% label_genes ), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5)), 
+           shape = 1,         # Hollow squares
+               size = 4, alpha = 1) + 
+  geom_hline(yintercept = 0) + 
+  # add the text label 
+  geom_text_repel(data = subset(sce_agg_merged_cc, mgi_symbol %in% label_genes ), 
+                  aes(x = Winsorize(avg_t50, maxval = 30), 
+                      y = Winsorize(avg_fc, minval = -7.5, maxval = 7.5), 
+           label = mgi_symbol), 
+           point.padding = 1,
+           box.padding = 0.25,
+           size = 7) + 
+  scale_y_continuous(breaks = c(0,2,4,6), 
+                     expand = c(0, 0),
+                     name = "log2 fold change") + 
+  scale_x_continuous(breaks = time_points, 
+                     labels = names(time_points), 
+                     name = "Time at 50% max change (t50)", 
+                     expand = c(0, 0)) + 
+  scale_colour_discrete(name = "Category for time at 50% max change") + 
+  facet_grid(group_1~max_cat) +
+  #facet_wrap(~exclude_cat) +
+  scale_fill_brewer(palette="Set1")+
+   scale_colour_brewer(palette="Set1")+
+  #scale_color_manual(values = k2color[,1]) +
+  ##scale_fill_manual(values = k2color[,1]) +
+  #scale_shape_manual(values=1:nlevels(toc_t50$k_15_comp)) +
+  theme_classic() +
+  theme(legend.position="bottom", 
+        text = element_text(size = 18),
+        strip.text.x = element_text(size = 20),
+          panel.grid.major =element_blank(),
+          #panel.grid.major.y =element_line(colour = "grey" ),
+          panel.grid.minor=element_blank(),
+          plot.background = element_rect(fill = "white", colour = "white"), 
+          strip.background = element_blank()) + 
+  guides(colour = guide_legend(override.aes = list(size=10)))
+          #panel.border=element_blank())
+
+
+max_timecourse_plot
+
+
+
+```
+
+
+```{r}
+sce_agg_merged_cc_ann %>% 
+  dplyr::filter(exclude_cat == "Shh related genes") %>%
+  dplyr::select(mgi_symbol)
+
+
+```
+
+```{r}
+dim(sce_agg_merged_cc_ann)
+table(!duplicated(sce_agg_merged_cc_ann$ensembl_gene_id))
+
+```
+
+
+Generate the summary table to allow filtering of the contaminant genes
+
+
+```{r}
+
+sce_contaminant <- sce_agg_merged_cc_ann %>%
+  dplyr::select(ensembl_gene_id, mgi_symbol, exclude_cat,  gn_name, non_gn_name,  gn_max_logn, non_gn_max_logn) 
+
+write.table(sce_contaminant, file = "~/Dropbox/GNP_MB_integrate/MT_scRNAseq/sce_contaminant.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+
+write.table(sce_agg_merged_cc_ann, file = "~/Dropbox/GNP_MB_integrate/Ezh2_2022/sce_contaminant_full.txt", sep = "\t", row.names = FALSE, col.names = TRUE)
+
+
+```

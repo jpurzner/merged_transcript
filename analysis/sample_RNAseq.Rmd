@@ -1,0 +1,237 @@
+---
+title: "sample_RNAseq"
+output: html_document
+date: "2024-06-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Differential expression of P7 to MB 
+
+```{r}
+
+scott_RNAseq <- 
+          read.table("~/Dropbox/GNP_MB_integrate/tss_model/Scott_RNAseq_tss_model_uniq_htseq_counts.txt",
+          sep ="\t", 
+          header = TRUE, 
+          row.names = 1)
+
+
+# strange extra column 
+scott_RNAseq$X <- NULL
+
+#remove the htseq tail
+scott_htseq_tail <- scott_RNAseq[(dim(scott_RNAseq)[1]-4):(dim(scott_RNAseq)[1]),] 
+scott_RNAseq <- scott_RNAseq[1:(dim(scott_RNAseq)[1]-5),]
+
+
+colnames(scott_RNAseq) <- matrix(unlist(strsplit(colnames(scott_RNAseq), "[.]")), ncol = 3, byrow = TRUE)[,2]
+
+colnames(scott_RNAseq)[grep("P7", colnames(scott_RNAseq))]
+colnames(scott_RNAseq)[grep("MB", colnames(scott_RNAseq))]
+
+scott_GNP_MB_RNAseq <- scott_RNAseq[,c(grep("P7", colnames(scott_RNAseq)), grep("MB", colnames(scott_RNAseq)))]
+
+GNP_MB_samples <- c("P7_GNP_wt_rep1_RNAseq","P7_GNP_wt_rep4_RNAseq","P7_GNP_wt_rep3_RNAseq", "MB_EZH2ko_noCre_rep1_RNAseq", "MB_Ptch_het_RNAseq_2", "MB_Ptch_het_RNAseq_3")
+
+scott_GNP_MB_RNAseq <- scott_GNP_MB_RNAseq[, colnames(scott_GNP_MB_RNAseq) %in% GNP_MB_samples]
+head(scott_GNP_MB_RNAseq)
+```
+
+
+```{r, fig.height= 5, fig.width= 5}
+pheatmap(cor(scott_GNP_MB_RNAseq, method = "spearman" ))
+
+```
+
+
+
+```{r, fig.height= 3, fig.width= 3 }
+
+library(DESeq2)
+source('~/Dropbox/jp_seq/rna_de_tpm3.R')
+
+
+scott_GNP_MB_RNAseq <- as.matrix(scott_GNP_MB_RNAseq)
+GNP_MB_colData <- data.frame(cols = colnames(scott_GNP_MB_RNAseq), condition = c("GNP","GNP","GNP","MB","MB","MB") )
+
+
+exon_length_bygene <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/table_2017_12_11/mm_ensembl67_pc_gnp_v1_exon_length.txt", header = TRUE, row.names  = 1, sep = "\t")
+
+table(row.names(scott_GNP_MB_RNAseq) == row.names(exon_length_bygene))
+
+GNP_MB_de <- RNA_de_tpm_3(scott_GNP_MB_RNAseq, c("GNP","GNP","GNP","MB","MB","MB"), de_prefix = "GNP_MB", exon_length = exon_length_bygene, read_cutoff = 5) 
+
+
+
+# from https://www.listendata.com/2016/07/add-linear-regression-equation-and.html
+linear = function(k) {
+  z <- list(xx = format(coef(k)[1], digits = 2),
+            yy = format(abs(coef(k)[2]), digits = 2),
+            r2 = format(summary(k)$r.squared, digits = 3));
+  if (coef(k)[2] >= 0)  {
+    eq <- substitute(italic(hat(y)) == xx + yy %.% italic(x)*","~~italic(r)^2~"="~r2,z)
+  } else {
+    eq <- substitute(italic(hat(y)) == xx - yy %.% italic(x)*","~~italic(r)^2~"="~r2,z)   
+  }
+  as.character(as.expression(eq));               
+}
+
+fo = y ~ x
+#linplot <- ggplot(data = gnp_mb_H3K27me3, aes(x = GNP, y = MB)) + geom_smooth(method = "lm", se=FALSE, color="black", formula = fo) 
+#linplot1 = linplot + annotate("text", x = 0.25, y = 0.75, label = linear(lm(fo, gnp_mb_H3K27me3)), colour="black", size = 5, parse=TRUE)
+#linplot1
+
+ ggplot(GNP_MB_de, aes(x = GNP_TPM_avg, y = MB_TPM_avg)) +
+  geom_point(aes( group = GNP_MB_subset_2F, colour = GNP_MB_subset_2F), size = 0.2) + 
+   scale_x_log10() + 
+   scale_y_log10() +
+   labs(x = "P7 GNP TPM", y = "MB TPM", colour = "Differential expression") +   
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = fo)  + 
+     annotate("text", x = 0.25, y = 1000, label = linear(lm(MB_TPM_avg ~ GNP_TPM_avg, GNP_MB_de)), colour="black", size = 5, parse=TRUE) +
+      theme_classic() + 
+   #scale_colour_manual(values =  sp_col) +
+      theme(legend.position =  c(0.85, 0.2), 
+            text = element_text(size = 12)) + #, 
+          #panel.background=element_blank(),
+          #panel.border=element_blank(),
+          #panel.grid.major=element_blank(),
+          #panel.grid.minor=element_blank(),
+          #plot.background=element_blank())
+   guides(colour=guide_legend(nrow=3,byrow=TRUE, override.aes = list(alpha = 1, size = 5) ))
+
+
+
+
+```
+
+```{r, fig.height= 3, fig.width= 3 }
+
+library(DESeq2)
+source('~/Dropbox/jp_seq/rna_de_tpm3.R')
+
+
+GNP_P1_MB_samples <- c("P1_GNP_RNAseq_1","P1_GNP_RNAseq_2", "MB_EZH2ko_noCre_rep1_RNAseq", "MB_Ptch_het_RNAseq_2", "MB_Ptch_het_RNAseq_3")
+
+scott_GNP_P1_MB_RNAseq <- scott_RNAseq[, GNP_P1_MB_samples]
+head(scott_GNP_P1_MB_RNAseq)
+
+scott_GNP_P1_MB_RNAseq <- as.matrix(scott_GNP_P1_MB_RNAseq)
+GNP_P1_MB_colData <- data.frame(cols = colnames(scott_GNP_P1_MB_RNAseq), condition = c("GNP","GNP","MB","MB","MB") )
+
+
+exon_length_bygene <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/table_2017_12_11/mm_ensembl67_pc_gnp_v1_exon_length.txt", header = TRUE, row.names  = 1, sep = "\t")
+
+table(row.names(scott_GNP_P1_MB_RNAseq) == row.names(exon_length_bygene))
+
+GNP_P1_MB_de <- RNA_de_tpm_3(scott_GNP_P1_MB_RNAseq, c("GNP","GNP","MB","MB","MB"), de_prefix = "GNP_P1_MB", exon_length = exon_length_bygene, read_cutoff = 5) 
+
+
+
+# from https://www.listendata.com/2016/07/add-linear-regression-equation-and.html
+linear = function(k) {
+  z <- list(xx = format(coef(k)[1], digits = 2),
+            yy = format(abs(coef(k)[2]), digits = 2),
+            r2 = format(summary(k)$r.squared, digits = 3));
+  if (coef(k)[2] >= 0)  {
+    eq <- substitute(italic(hat(y)) == xx + yy %.% italic(x)*","~~italic(r)^2~"="~r2,z)
+  } else {
+    eq <- substitute(italic(hat(y)) == xx - yy %.% italic(x)*","~~italic(r)^2~"="~r2,z)   
+  }
+  as.character(as.expression(eq));               
+}
+
+fo = y ~ x
+#linplot <- ggplot(data = gnp_mb_H3K27me3, aes(x = GNP, y = MB)) + geom_smooth(method = "lm", se=FALSE, color="black", formula = fo) 
+#linplot1 = linplot + annotate("text", x = 0.25, y = 0.75, label = linear(lm(fo, gnp_mb_H3K27me3)), colour="black", size = 5, parse=TRUE)
+#linplot1
+
+ ggplot(GNP_P1_MB_de, aes(x = GNP_TPM_avg, y = MB_TPM_avg)) +
+  geom_point(aes( group = GNP_P1_MB_subset_2F, colour = GNP_P1_MB_subset_2F), size = 0.2) + 
+   scale_x_log10() + 
+   scale_y_log10() +
+   labs(x = "P1 GNP TPM", y = "MB TPM", colour = "Differential expression") +   
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = fo)  + 
+     annotate("text", x = 0.25, y = 1000, label = linear(lm(MB_TPM_avg ~ GNP_TPM_avg, GNP_P1_MB_de)), colour="black", size = 5, parse=TRUE) +
+      #theme_classic() + 
+   #scale_colour_manual(values =  sp_col) +
+      theme_classic() + 
+   #scale_colour_manual(values =  sp_col) +
+      theme(legend.position =  c(0.85, 0.2), 
+            text = element_text(size = 12)) + #, 
+          #panel.background=element_blank(),
+          #panel.border=element_blank(),
+          #panel.grid.major=element_blank(),
+          #panel.grid.minor=element_blank(),
+          #plot.background=element_blank())
+   guides(colour=guide_legend(nrow=3,byrow=TRUE, override.aes = list(alpha = 1, size = 5) ))
+
+
+```
+
+
+```{r, fig.height= 3, fig.width= 3 }
+
+library(DESeq2)
+source('~/Dropbox/jp_seq/rna_de_tpm2.R')
+
+
+GNP_P14_MB_samples <- c("P14_GNP_RNAseq_1","P14_GNP_RNAseq_2","P14_GNP_RNAseq_3", "MB_EZH2ko_noCre_rep1_RNAseq", "MB_Ptch_het_RNAseq_2", "MB_Ptch_het_RNAseq_3")
+
+scott_GNP_P14_MB_RNAseq <- scott_RNAseq[, GNP_P14_MB_samples]
+head(scott_GNP_P14_MB_RNAseq)
+
+scott_GNP_P14_MB_RNAseq <- as.matrix(scott_GNP_P14_MB_RNAseq)
+GNP_P14_MB_colData <- data.frame(cols = colnames(scott_GNP_P14_MB_RNAseq), condition = c("GNP","GNP","GNP","MB","MB","MB") )
+
+
+exon_length_bygene <- read.table("~/Dropbox/GNP_MB_integrate/2016_06_18_integration/table_2017_12_11/mm_ensembl67_pc_gnp_v1_exon_length.txt", header = TRUE, row.names  = 1, sep = "\t")
+
+table(row.names(scott_GNP_P14_MB_RNAseq) == row.names(exon_length_bygene))
+
+GNP_P14_MB_de <- RNA_de_tpm_3(scott_GNP_P14_MB_RNAseq, c("GNP","GNP","GNP","MB","MB","MB"), de_prefix = "GNP_P14_MB", exon_length = exon_length_bygene, read_cutoff = 5) 
+
+
+
+# from https://www.listendata.com/2016/07/add-linear-regression-equation-and.html
+linear = function(k) {
+  z <- list(xx = format(coef(k)[1], digits = 2),
+            yy = format(abs(coef(k)[2]), digits = 2),
+            r2 = format(summary(k)$r.squared, digits = 3));
+  if (coef(k)[2] >= 0)  {
+    eq <- substitute(italic(hat(y)) == xx + yy %.% italic(x)*","~~italic(r)^2~"="~r2,z)
+  } else {
+    eq <- substitute(italic(hat(y)) == xx - yy %.% italic(x)*","~~italic(r)^2~"="~r2,z)   
+  }
+  as.character(as.expression(eq));               
+}
+
+fo = y ~ x
+#linplot <- ggplot(data = gnp_mb_H3K27me3, aes(x = GNP, y = MB)) + geom_smooth(method = "lm", se=FALSE, color="black", formula = fo) 
+#linplot1 = linplot + annotate("text", x = 0.25, y = 0.75, label = linear(lm(fo, gnp_mb_H3K27me3)), colour="black", size = 5, parse=TRUE)
+#linplot1
+
+ ggplot(GNP_P14_MB_de, aes(x = GNP_TPM_avg, y = MB_TPM_avg)) +
+  geom_point(aes( group = GNP_P14_MB_subset_2F, colour = GNP_P14_MB_subset_2F), size = 0.2) + 
+   scale_x_log10() + 
+   scale_y_log10() +
+   labs(x = "P14 GNP TPM", y = "MB TPM", colour = "Differential expression") +   
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = fo)  + 
+     annotate("text", x = 0.25, y = 1000, label = linear(lm(MB_TPM_avg ~ GNP_TPM_avg, GNP_P14_MB_de)), colour="black", size = 5, parse=TRUE) +
+      #theme_classic() + 
+   #scale_colour_manual(values =  sp_col) +
+      theme_classic() + 
+   #scale_colour_manual(values =  sp_col) +
+      theme(legend.position =  c(0.85, 0.2), 
+            text = element_text(size = 12)) + #, 
+          #panel.background=element_blank(),
+          #panel.border=element_blank(),
+          #panel.grid.major=element_blank(),
+          #panel.grid.minor=element_blank(),
+          #plot.background=element_blank())
+   guides(colour=guide_legend(nrow=3,byrow=TRUE, override.aes = list(alpha = 1, size = 5) ))
+
+
+```
