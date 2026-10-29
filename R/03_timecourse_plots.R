@@ -64,6 +64,8 @@ p1 <- plot_group_timeline(
 )
 ggsave(file.path(MT_FIGURES, "kinetic_class_timelines.pdf"), p1,
        width = 11, height = 10, limitsize = FALSE, bg = "white")
+ggsave(file.path(MT_FIGURES, "kinetic_class_timelines.png"), p1,
+       width = 11, height = 10, dpi = 110, limitsize = FALSE, bg = "white")
 
 # ---------------------------------------------------------------------------
 # 2. Example marker genes across the differentiation axis.
@@ -76,6 +78,8 @@ p2 <- mt_plot_genes(examples, expr = expr, idx = idx,
                     ylimits = c(-3, 3), col_num = 3, text_size = 13)
 ggsave(file.path(MT_FIGURES, "example_genes_timeline.pdf"), p2,
        width = 10, height = 7, limitsize = FALSE, bg = "white")
+ggsave(file.path(MT_FIGURES, "example_genes_timeline.png"), p2,
+       width = 10, height = 7, dpi = 110, limitsize = FALSE, bg = "white")
 
 # ---------------------------------------------------------------------------
 # 3. t50 vs signed fold change, faceted by time-of-max category.

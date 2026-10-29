@@ -44,6 +44,28 @@ Each gene carries a `gene_program` label (`embryonic` / `proliferation` /
 [10.7554/eLife.105339.1](https://doi.org/10.7554/eLife.105339.1)), the paper
 this dataset underlies — see `references/`.
 
+## Example figures
+
+**Developmental kinetics of every changing transcript**, grouped into the nine
+kinetic classes (time of peak × t50), both datasets overlaid (mean ± SD) with
+the median t50 marked:
+
+![Kinetic-class timelines](figures/kinetic_class_timelines.png)
+
+**Marker genes** across the differentiation axis — progenitor/proliferation
+genes falling (*Ezh2*, *Gli1*), mature-neuron genes rising (*Gabra6*):
+
+![Example marker genes](figures/example_genes_timeline.png)
+
+**Gene-classification Sankey** (paper Fig S1) — the stepwise filter that defines
+the three gene programs, reproducing the published set sizes (783 embryonic /
+440 proliferation / 787 differentiation):
+
+![Gene-classification Sankey](figures/sankey_gene_classification.png)
+
+Regenerate with `Rscript R/run_pipeline.R --step plots` and
+`Rscript R/figures/sankey_classification.R`.
+
 See **[docs/SKILL.md](docs/SKILL.md)** for the field dictionary, the JSON
 schema, and the biological interpretation guide — that is the document an
 agent should read before querying.
