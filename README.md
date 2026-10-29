@@ -114,6 +114,20 @@ exactly (t50 / fold change / time-of-max: r = 1) and ~93% of the categorical
 kinetic-class calls (the remainder differ only at the expression-binarization
 cutoff — see `docs/SKILL.md`).
 
+## Citation
+
+If you use this dataset or code, please cite the eLife paper this work is part of:
+
+> Purzner J, Brown AS, Purzner T, Ellis L, Broski S, Litzenburger U, Andrews K,
+> Sharma A, Wang X, Taylor MD, Cho Y-J, Fuller MT, Scott MP.
+> **Ezh2 Delays Activation of Differentiation Genes During Normal Cerebellar
+> Granule Neuron Development and in Medulloblastoma.** *eLife* (2025), reviewed
+> preprint. DOI: [10.7554/eLife.105339.1](https://doi.org/10.7554/eLife.105339.1).
+
+See [`CITATION.cff`](CITATION.cff) (GitHub's "Cite this repository") and
+[`references/`](references/).
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Citing the paper above is requested for any use of
+the data or figures.

@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: "If you use this dataset or code, please cite the eLife paper below."
+title: "merged_transcript: merged GNP developmental transcript timecourse"
+authors:
+  - family-names: Purzner
+    given-names: James
+repository-code: "https://github.com/jpurzner/merged_transcript"
+preferred-citation:
+  type: article
+  title: "Ezh2 Delays Activation of Differentiation Genes During Normal Cerebellar Granule Neuron Development and in Medulloblastoma"
+  authors:
+    - family-names: Purzner
+      given-names: James
+    - family-names: Brown
+      given-names: Alexander S
+    - family-names: Purzner
+      given-names: Teresa
+    - family-names: Ellis
+      given-names: Lauren
+    - family-names: Broski
+      given-names: Sara
+    - family-names: Litzenburger
+      given-names: Ulrike
+    - family-names: Andrews
+      given-names: Kaytlin
+    - family-names: Sharma
+      given-names: Aryaman
+    - family-names: Wang
+      given-names: Xin
+    - family-names: Taylor
+      given-names: Michael D
+    - family-names: Cho
+      given-names: Yoon-Jae
+    - family-names: Fuller
+      given-names: Margaret T
+    - family-names: Scott
+      given-names: Matthew P
+  journal: "eLife"
+  year: 2025
+  notes: "Reviewed preprint"
+  doi: "10.7554/eLife.105339.1"
+  url: "https://elifesciences.org/reviewed-preprints/105339"
